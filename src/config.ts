@@ -1,12 +1,12 @@
-export const TILE = 32;
+export const TILE = 48;
 export const MAP_W = 60;
 export const MAP_H = 40;
 
 export const WORLD_W = TILE * MAP_W;
 export const WORLD_H = TILE * MAP_H;
 
-export const VIEWPORT_W = 1280;
-export const VIEWPORT_H = 720;
+export const VIEWPORT_W = 1920;
+export const VIEWPORT_H = 1080;
 
 // Height of the opaque UI bars in UIScene. The Game camera's viewport is
 // inset so the world never renders underneath them.

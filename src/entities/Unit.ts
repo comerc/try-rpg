@@ -40,11 +40,18 @@ export class Unit extends Entity {
   private bobPhase = Math.random() * Math.PI * 2;
   private facing: 1 | -1 = 1;
   private lastX: number;
+  private lastY: number;
   private dustTimer = 0;
   private attackAnimTimer = 0;
   private accentGraphic: Phaser.GameObjects.Graphics;
+  private actionGraphic: Phaser.GameObjects.Graphics;
   private accentSeed = Math.random() * Math.PI * 2;
   private visualScale = 1;
+  private poseScaleX = 1;
+  private poseScaleY = 1;
+  private poseRotation = 0;
+  private motionAngle = Math.PI / 2;
+  private motionIntensity = 0;
   private idleFxTimer = 0;
 
   constructor(scene: Phaser.Scene, x: number, y: number, team: Team, kind: UnitKind) {
@@ -57,14 +64,17 @@ export class Unit extends Entity {
     this.range = def.range;
     this.attackCooldown = def.attackCooldown;
     this.sight = def.sight;
-    this.radius = kind === 'footman' ? 12 : kind === 'archer' ? 11 : 10;
+    this.radius = kind === 'footman' ? TILE * 0.42 : kind === 'archer' ? TILE * 0.38 : TILE * 0.36;
     this.visualScale = kind === 'footman' ? 1.02 : 1;
     this.redrawBaseDecor();
     this.accentGraphic = scene.add.graphics();
     this.addAt(this.accentGraphic, 4);
+    this.actionGraphic = scene.add.graphics();
+    this.addAt(this.actionGraphic, 5);
     this.applyFacingScale();
     this.redrawTeamAccent(0);
     this.lastX = x;
+    this.lastY = y;
   }
 
   setPath(path: PathPoint[], final = true) {
@@ -120,10 +130,13 @@ export class Unit extends Entity {
         this.tickHold(time);
         break;
     }
-    this.updateBobbing(delta);
+    this.attackAnimTimer = Math.max(0, this.attackAnimTimer - delta);
+    this.updateAnimatedTexture(time);
+    this.updateBobbing(time, delta);
     this.updateSelectionPulse(delta);
     this.updateFlash(delta);
     this.redrawTeamAccent(time);
+    this.redrawActionFx(time);
     this.updateIdleAmbientFx(delta);
     this.refreshDepth();
     this.updateDustTrail(delta);
@@ -146,31 +159,87 @@ export class Unit extends Entity {
     return false;
   }
 
-  private updateBobbing(delta: number) {
+  private updateBobbing(time: number, delta: number) {
     const moving = this.isMovingState();
+    const vx = this.x - this.lastX;
+    const vy = this.y - this.lastY;
+    const moved = Math.hypot(vx, vy);
+    if (moved > 0.05) {
+      this.motionAngle = Math.atan2(vy, vx);
+      this.motionIntensity = Math.min(1, moved / Math.max(0.01, (this.speed * delta) / 1000));
+      if (Math.abs(vx) > 0.08) this.facing = vx > 0 ? 1 : -1;
+    } else {
+      this.motionIntensity *= 0.82;
+    }
+
     if (moving) {
       this.bobPhase += delta / 65;
       this.sprite.y = Math.sin(this.bobPhase) * 2.0;
       this.sprite.x = Math.sin(this.bobPhase * 0.5) * 0.5;
+      const vertical = Math.sin(this.motionAngle);
+      this.poseScaleX = 1 + Math.abs(Math.cos(this.motionAngle)) * 0.035;
+      this.poseScaleY = 1 + Math.max(0, vertical) * 0.055 - Math.max(0, -vertical) * 0.035;
+      this.poseRotation = Math.sin(this.bobPhase) * 0.035 * this.facing;
     } else {
       this.bobPhase += delta / 400;
+      const rest = Math.sin(time / 520 + this.accentSeed);
       this.sprite.y = Math.sin(this.bobPhase) * 0.6;
       this.sprite.x *= 0.9;
+      this.poseScaleX = 1 - rest * 0.012;
+      this.poseScaleY = 1 + rest * 0.018;
+      this.poseRotation = rest * 0.015;
     }
-    if (Math.abs(this.x - this.lastX) > 0.3) {
-      const newFacing = this.x > this.lastX ? 1 : -1;
-      if (newFacing !== this.facing) {
-        this.facing = newFacing;
-        this.applyFacingScale();
-      }
+
+    if (this.attackAnimTimer > 0) {
+      const t = this.attackAnimTimer / 240;
+      const punch = Math.sin((1 - t) * Math.PI);
+      this.poseScaleX += punch * 0.12;
+      this.poseScaleY -= punch * 0.045;
+      this.poseRotation += punch * 0.07 * this.facing;
     }
     this.accentGraphic.setPosition(this.sprite.x, this.sprite.y);
+    this.actionGraphic.setPosition(this.sprite.x, this.sprite.y);
+    this.applyFacingScale();
     this.lastX = this.x;
+    this.lastY = this.y;
+  }
+
+  private updateAnimatedTexture(time: number) {
+    const fallback = `unit-${this.kind}-${this.team}-d`;
+    let key = fallback;
+    if (this.fsm.kind === 'attacking') {
+      const frame = this.attackAnimTimer > 120 ? 0 : 1;
+      key = `unit-${this.kind}-${this.team}-attack-${frame}`;
+    } else if (this.isMovingState()) {
+      const ay = Math.sin(this.motionAngle);
+      const ax = Math.cos(this.motionAngle);
+      let dir = 'walk-right';
+      let frameCount = 3;
+      if (ay < -0.55 && Math.abs(ay) > Math.abs(ax) * 0.85) {
+        dir = 'walk-up';
+        frameCount = 2;
+      } else if (ay > 0.55 && Math.abs(ay) > Math.abs(ax) * 0.85) {
+        dir = 'walk-down';
+      }
+      const frame = Math.floor(time / 130 + this.accentSeed) % frameCount;
+      key = `unit-${this.kind}-${this.team}-${dir}-${frame}`;
+    } else {
+      const frame = Math.floor(time / 620 + this.accentSeed) % 2;
+      key = `unit-${this.kind}-${this.team}-idle-${frame}`;
+    }
+    if (this.scene.textures.exists(key)) {
+      if (this.sprite.texture.key !== key) this.sprite.setTexture(key);
+    } else if (this.sprite.texture.key !== fallback) {
+      this.sprite.setTexture(fallback);
+    }
   }
 
   private applyFacingScale() {
-    this.sprite.setScale(this.facing * this.visualScale, this.visualScale);
-    this.accentGraphic.setScale(this.facing * this.visualScale, this.visualScale);
+    this.sprite.setScale(this.facing * this.visualScale * this.poseScaleX, this.visualScale * this.poseScaleY);
+    this.sprite.setRotation(this.poseRotation);
+    this.accentGraphic.setScale(this.facing * this.visualScale * this.poseScaleX, this.visualScale * this.poseScaleY);
+    this.accentGraphic.setRotation(this.poseRotation);
+    this.actionGraphic.setScale(this.facing * this.visualScale, this.visualScale);
   }
 
   private redrawTeamAccent(time: number) {
@@ -229,20 +298,68 @@ export class Unit extends Entity {
   }
 
   private updateIdleAmbientFx(delta: number) {
-    if (this.kind !== 'footman') return;
     if (this.isMovingState() || this.fsm.kind === 'attacking' || this.fsm.kind === 'attackMoving') {
       this.idleFxTimer = 0;
       return;
     }
     this.idleFxTimer += delta;
-    if (this.idleFxTimer < 850 + Math.random() * 650) return;
+    if (this.idleFxTimer < 1100 + Math.random() * 900) return;
     this.idleFxTimer = 0;
     const vfx = (this.scene as any).vfx;
     if (!vfx) return;
-    if (Math.random() > 0.45) {
+    if (this.kind === 'peasant') {
+      vfx.spawnDustCloud(this.x - this.facing * 7, this.y + this.radius * 0.45, 1);
+    } else if (Math.random() > 0.45) {
       vfx.spawnAmbientMote(this.x - this.facing * 10, this.y - this.radius * 0.25, this.team === 'player' ? 0x93c5fd : 0xfca5a5, 0.7);
     } else {
       vfx.spawnSparks(this.x - this.facing * 12, this.y - this.radius * 0.1, this.team === 'player' ? 0x93c5fd : 0xfca5a5, 1);
+    }
+  }
+
+  private redrawActionFx(time: number) {
+    const g = this.actionGraphic;
+    g.clear();
+
+    const teamColor = TEAM_COLOR[this.team];
+    const r = this.radius;
+    if (this.isMovingState() && this.motionIntensity > 0.08) {
+      const back = this.motionAngle + Math.PI;
+      const step = Math.sin(time / 85 + this.accentSeed);
+      const bx = Math.cos(back) * r * 0.5;
+      const by = Math.sin(back) * r * 0.28 + r * 0.55;
+      g.lineStyle(1.6, 0xd6c7a1, 0.16 + Math.abs(step) * 0.12);
+      g.lineBetween(bx - 4, by, bx + 5, by + 1.5);
+      g.lineStyle(1.2, teamColor, 0.12);
+      g.lineBetween(-Math.cos(this.motionAngle) * r * 0.35, r * 0.7, -Math.cos(this.motionAngle) * r * 0.7, r * 0.82);
+      return;
+    }
+
+    if (this.fsm.kind === 'attacking') {
+      const t = this.attackAnimTimer > 0 ? this.attackAnimTimer / 240 : 0.18 + Math.sin(time / 160) * 0.05;
+      const alpha = Phaser.Math.Clamp(t, 0.15, 0.85);
+      const reach = this.kind === 'archer' ? r * 1.6 : r * 1.15;
+      const y = this.kind === 'archer' ? -r * 0.45 : -r * 0.05;
+      if (this.kind === 'archer') {
+        g.lineStyle(1.2, 0xfef3c7, alpha * 0.45);
+        g.lineBetween(r * 0.15, y, reach, y - 2);
+        g.fillStyle(teamColor, alpha * 0.55).fillCircle(reach, y - 2, 1.5);
+      } else {
+        g.lineStyle(3.2, teamColor, alpha * 0.45);
+        g.beginPath();
+        g.arc(r * 0.2, y, reach, -0.5, 0.55, false);
+        g.strokePath();
+        g.lineStyle(1.2, 0xffffff, alpha * 0.55);
+        g.beginPath();
+        g.arc(r * 0.2, y, reach * 0.75, -0.3, 0.35, false);
+        g.strokePath();
+      }
+      return;
+    }
+
+    if (this.fsm.kind === 'idle' || this.fsm.kind === 'hold') {
+      const pulse = 0.5 + Math.sin(time / 700 + this.accentSeed) * 0.5;
+      g.fillStyle(teamColor, 0.05 + pulse * 0.035);
+      g.fillEllipse(0, r * 0.78, r * 1.25, r * 0.22);
     }
   }
 
@@ -310,9 +427,11 @@ export class Unit extends Entity {
       return;
     }
     this.facing = dx >= 0 ? 1 : -1;
+    this.motionAngle = Math.atan2(dy, dx);
     this.applyFacingScale();
     if (time - this.lastAttackAt >= this.attackCooldown) {
       this.lastAttackAt = time;
+      this.attackAnimTimer = 240;
       const snd = (this.scene as any).sound2;
       const vfx = (this.scene as any).vfx;
       if (this.kind === 'archer') {

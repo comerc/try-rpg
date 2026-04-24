@@ -17,6 +17,8 @@ export class GameMap {
   readonly tiles: TileType[][] = [];
   readonly grid: number[][] = [];
   private biomeSeed: string;
+  private animatedTiles: Array<{ img: Phaser.GameObjects.Image; base: string; offset: number; frames: number }> = [];
+  private lastTileFrame = -1;
 
   constructor(private scene: Phaser.Scene) {
     this.biomeSeed = String(Date.now());
@@ -59,17 +61,48 @@ export class GameMap {
     const rng = new Phaser.Math.RandomDataGenerator([`terrain-${this.biomeSeed}-${this.w}x${this.h}`]);
     for (let y = 0; y < this.h; y++) {
       for (let x = 0; x < this.w; x++) {
-        const img = this.scene.add.image(x * TILE + TILE / 2, y * TILE + TILE / 2, TEX[this.tiles[y][x]])
+        const tile = this.tiles[y][x];
+        const tex = this.initialTextureFor(tile, rng);
+        const img = this.scene.add.image(x * TILE + TILE / 2, y * TILE + TILE / 2, tex)
           .setDepth(-100);
+        img.setDisplaySize(TILE, TILE);
         img.setAlpha(0.95 + rng.frac() * 0.08);
         img.setScale(1.01 + rng.frac() * 0.04);
         img.setFlipX(rng.frac() > 0.5);
         img.setFlipY(rng.frac() > 0.78);
-        img.setTint(this.getTileTint(x, y, this.tiles[y][x]));
+        img.setTint(this.getTileTint(x, y, tile));
+        if (tile === 'water' || tile === 'grass-rich') {
+          this.animatedTiles.push({
+            img,
+            base: tile === 'water' ? 'tile-water' : 'tile-grass-rich',
+            offset: Math.floor(rng.frac() * 4),
+            frames: 4,
+          });
+        }
       }
     }
 
     this.renderTerrainDetails();
+  }
+
+  update(time: number) {
+    const frameBucket = Math.floor(time / 260);
+    if (frameBucket === this.lastTileFrame) return;
+    this.lastTileFrame = frameBucket;
+    for (const tile of this.animatedTiles) {
+      const frame = (frameBucket + tile.offset) % tile.frames;
+      const key = `${tile.base}-${frame}`;
+      if (this.scene.textures.exists(key) && tile.img.texture.key !== key) {
+        tile.img.setTexture(key).setDisplaySize(TILE, TILE);
+      }
+    }
+  }
+
+  private initialTextureFor(tile: TileType, rng: Phaser.Math.RandomDataGenerator): string {
+    if ((tile === 'water' || tile === 'grass-rich' || tile === 'grass' || tile === 'dirt') && this.scene.textures.exists(`tile-${tile}-0`)) {
+      return `tile-${tile}-${Math.floor(rng.frac() * 4)}`;
+    }
+    return TEX[tile];
   }
 
   private renderBackdrop() {
