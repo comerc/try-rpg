@@ -11,22 +11,34 @@ export class ResourceNode extends Phaser.GameObjects.Container {
   radius: number;
 
   protected sprite: Phaser.GameObjects.Image;
+  private animOffset = Math.random() * 1000;
 
   constructor(scene: Phaser.Scene, tx: number, ty: number, kind: ResourceKind) {
     const size = kind === 'goldmine' ? 2 : 1;
-    super(scene, tx * TILE + TILE / 2, ty * TILE + TILE / 2);
+    super(scene, tx * TILE + (size * TILE) / 2, ty * TILE + (size * TILE) / 2);
     this.kind = kind;
     this.stock = RESOURCE_STOCK[kind];
     this.maxStock = RESOURCE_STOCK[kind];
     this.tx = tx; this.ty = ty;
     this.size = size;
-    this.radius = kind === 'goldmine' ? 18 : 12;
+    this.radius = kind === 'goldmine' ? TILE * 0.95 : TILE * 0.48;
 
     this.sprite = scene.add.image(0, 0, kind === 'goldmine' ? 'res-goldmine-d' : 'res-tree-d');
-    if (kind === 'goldmine') this.sprite.setScale(1.5);
+    if (kind === 'goldmine') this.sprite.setDisplaySize(TILE * 1.9, TILE * 1.9);
+    else this.sprite.setDisplaySize(TILE * 1.25, TILE * 1.25);
     this.add(this.sprite);
     scene.add.existing(this);
     this.setDepth(this.y);
+  }
+
+  update(time: number, _delta: number) {
+    const frame = Math.floor((time + this.animOffset) / (this.kind === 'goldmine' ? 260 : 360)) % 4;
+    const key = this.kind === 'goldmine' ? `res-goldmine-${frame}` : `res-tree-${frame}`;
+    if (this.scene.textures.exists(key) && this.sprite.texture.key !== key) {
+      this.sprite.setTexture(key);
+      if (this.kind === 'goldmine') this.sprite.setDisplaySize(TILE * 1.9, TILE * 1.9);
+      else this.sprite.setDisplaySize(TILE * 1.25, TILE * 1.25);
+    }
   }
 
   // Selection-system compatibility stubs. ResourceNode is pushed into

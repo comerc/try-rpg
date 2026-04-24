@@ -4,6 +4,83 @@ import { TILE } from '../config';
 export class BootScene extends Phaser.Scene {
   constructor() { super('Boot'); }
 
+  preload() {
+    const base = '/assets/generated';
+    const generatedTextures = [
+      'tile-grass',
+      'tile-dirt',
+      'tile-water',
+      'tile-grass-rich',
+      'unit-peasant-player-d',
+      'unit-peasant-enemy-d',
+      'unit-footman-player-d',
+      'unit-footman-enemy-d',
+      'unit-archer-player-d',
+      'unit-archer-enemy-d',
+      'res-tree-d',
+      'res-goldmine-d',
+      'bld-townhall-player-d',
+      'bld-townhall-enemy-d',
+      'bld-barracks-player-d',
+      'bld-barracks-enemy-d',
+      'bld-farm-player-d',
+      'bld-farm-enemy-d',
+      'bld-tower-player-d',
+      'bld-tower-enemy-d',
+    ];
+    for (const key of generatedTextures) {
+      this.load.image(key, `${base}/${key}.png`);
+    }
+    this.loadAnimationFrames(`${base}/animation`);
+  }
+
+  private loadAnimationFrames(base: string) {
+    const units = ['peasant', 'footman', 'archer'] as const;
+    const teams = ['player', 'enemy'] as const;
+    const unitStates: Array<[string, number]> = [
+      ['idle', 2],
+      ['walk-down', 3],
+      ['walk-right', 3],
+      ['walk-up', 2],
+      ['attack', 2],
+    ];
+    for (const kind of units) {
+      for (const team of teams) {
+        for (const [state, count] of unitStates) {
+          for (let i = 0; i < count; i++) {
+            const key = `unit-${kind}-${team}-${state}-${i}`;
+            this.load.image(key, `${base}/${key}.png`);
+          }
+        }
+      }
+    }
+
+    const buildings = ['townhall', 'barracks', 'farm', 'tower'] as const;
+    const stages = ['foundation', 'scaffold', 'shell', 'ready', 'damaged', 'ruins'] as const;
+    for (const kind of buildings) {
+      for (const team of teams) {
+        for (const stage of stages) {
+          const key = `bld-${kind}-${team}-${stage}`;
+          this.load.image(key, `${base}/${key}.png`);
+        }
+      }
+    }
+
+    for (const res of ['tree', 'goldmine'] as const) {
+      for (let i = 0; i < 4; i++) {
+        const key = `res-${res}-${i}`;
+        this.load.image(key, `${base}/${key}.png`);
+      }
+    }
+
+    for (const tile of ['grass', 'grass-rich', 'dirt', 'water'] as const) {
+      for (let i = 0; i < 4; i++) {
+        const key = `tile-${tile}-${i}`;
+        this.load.image(key, `${base}/${key}.png`);
+      }
+    }
+  }
+
   create() {
     this.cameras.main.setBackgroundColor('#08110f');
 
@@ -51,6 +128,7 @@ export class BootScene extends Phaser.Scene {
   }
 
   private makeTile(key: string, fill: number, stroke: number, highlight: number, detailCount: number) {
+    if (this.textures.exists(key)) return;
     const g = this.add.graphics();
     const rng = new Phaser.Math.RandomDataGenerator([key]);
     const dark = Phaser.Display.Color.IntegerToColor(stroke).darken(15).color;
@@ -122,6 +200,7 @@ export class BootScene extends Phaser.Scene {
   }
 
   private makeCircle(key: string, r: number, fill: number, stroke: number) {
+    if (this.textures.exists(key)) return;
     const g = this.add.graphics();
     g.fillStyle(0x000000, 0.2).fillEllipse(r + 1, r * 2 + 1, r * 1.6, r * 0.5);
     g.fillStyle(fill, 1).fillCircle(r + 1, r + 1, r);
@@ -132,6 +211,7 @@ export class BootScene extends Phaser.Scene {
   }
 
   private makeRect(key: string, w: number, h: number, fill: number, stroke: number) {
+    if (this.textures.exists(key)) return;
     const g = this.add.graphics();
     g.fillStyle(fill, 1).fillRect(0, 0, w, h);
     if (w > 6 && h > 6) {
@@ -147,6 +227,7 @@ export class BootScene extends Phaser.Scene {
   }
 
   private makeDetailedBuilding(key: string, w: number, h: number, wallColor: number, roofColor: number, borderColor: number) {
+    if (this.textures.exists(key)) return;
     const g = this.add.graphics();
     const isFarm = key.includes('farm');
     const isBarracks = key.includes('barracks');
@@ -425,6 +506,7 @@ export class BootScene extends Phaser.Scene {
   }
 
   private makeDetailedTower(key: string, w: number, h: number, stoneBase: number, factionColor: number) {
+    if (this.textures.exists(key)) return;
     const g = this.add.graphics();
     const stoneDark = Phaser.Display.Color.IntegerToColor(stoneBase).darken(22).color;
     const stoneMid = stoneBase;
@@ -538,6 +620,7 @@ export class BootScene extends Phaser.Scene {
   }
 
   private makeDetailedUnit(key: string, r: number, bodyColor: number, darkColor: number, strokeColor: number) {
+    if (this.textures.exists(key)) return;
     const size = (r + 1) * 2 + 8;
     const cx = size / 2;
     const cy = size / 2;
@@ -731,6 +814,7 @@ export class BootScene extends Phaser.Scene {
   }
 
   private makeDetailedTree(key: string, leafColor: number, trunkColor: number) {
+    if (this.textures.exists(key)) return;
     const g = this.add.graphics();
     const cx = 18, cy = 13;
 
@@ -781,6 +865,7 @@ export class BootScene extends Phaser.Scene {
   }
 
   private makeDetailedGoldmine(key: string, goldColor: number, rockColor: number) {
+    if (this.textures.exists(key)) return;
     const g = this.add.graphics();
 
     g.fillStyle(0x000000, 0.36).fillEllipse(19, 32, 34, 6);

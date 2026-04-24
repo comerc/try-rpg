@@ -140,6 +140,7 @@ export class GameScene extends Phaser.Scene {
 
   update(time: number, delta: number) {
     this.gameTime += delta;
+    this.map.update(time);
     for (const e of this.entities) {
       if (e.dead) continue;
       (e as any).update?.(time, delta);
