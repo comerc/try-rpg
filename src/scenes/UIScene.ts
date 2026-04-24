@@ -6,6 +6,8 @@ import { Building } from '../entities/Building';
 import { ResourceNode } from '../entities/Resource';
 import { T, unitName, buildingName } from '../i18n';
 
+type VolumeKind = 'music' | 'effects' | 'voice';
+
 export class UIScene extends Phaser.Scene {
   private resourceText!: Phaser.GameObjects.Text;
   private selectionText!: Phaser.GameObjects.Text;
@@ -20,6 +22,11 @@ export class UIScene extends Phaser.Scene {
   private selectionPortrait!: Phaser.GameObjects.Image;
   private tooltipText!: Phaser.GameObjects.Text;
   private tooltipBg!: Phaser.GameObjects.Rectangle;
+  private settingsOverlay: Phaser.GameObjects.Container | null = null;
+  private settingsFullscreenText: Phaser.GameObjects.Text | null = null;
+  private settingsValueTexts: Partial<Record<VolumeKind, Phaser.GameObjects.Text>> = {};
+  private settingsBars: Partial<Record<VolumeKind, { fill: Phaser.GameObjects.Rectangle; width: number }>> = {};
+  private settingsVolumes: Record<VolumeKind, number> = { music: 0.75, effects: 0.85, voice: 0.85 };
 
   private pauseOverlay: Phaser.GameObjects.Rectangle | null = null;
   private pauseLabel: Phaser.GameObjects.Text | null = null;
@@ -29,6 +36,17 @@ export class UIScene extends Phaser.Scene {
   private patrolMode = false;
   private patrolPointA: { x: number; y: number } | null = null;
   private repairMode = false;
+  private readonly compactUi = VIEWPORT_W / VIEWPORT_H >= 1.7;
+  private readonly bottomPanelH = 154;
+  private readonly bottomBarH = this.compactUi ? 138 : 154;
+  private readonly actionButtonW = this.compactUi ? 154 : 175;
+  private readonly actionButtonH = this.compactUi ? 28 : 32;
+  private readonly actionButtonGap = this.compactUi ? 6 : 8;
+  private readonly actionButtonFont = this.compactUi ? '10px' : '12px';
+  private readonly buttonsOriginX = VIEWPORT_W - ((this.compactUi ? 154 : 175) * 2 + (this.compactUi ? 6 : 8) + 16);
+  private readonly buttonsOriginY = VIEWPORT_H - (this.compactUi ? 126 : 140);
+  private readonly minimapW = this.compactUi ? 178 : 200;
+  private readonly minimapH = this.compactUi ? 112 : 130;
   private lastAffordHash: string | null = null;
   private gameScene: Phaser.Scene | null = null;
   private readonly onSelectionChanged = (ents: Entity[]) => {
@@ -52,24 +70,24 @@ export class UIScene extends Phaser.Scene {
     chrome.fillStyle(0x0d1420, 0.92).fillRect(0, 0, VIEWPORT_W, 44);
     chrome.fillStyle(0x60a5fa, 0.3).fillRect(0, 42, VIEWPORT_W, 2);
     // Bottom bar (single flat panel)
-    chrome.fillStyle(0x0d1420, 0.94).fillRect(0, VIEWPORT_H - 154, VIEWPORT_W, 154);
-    chrome.fillStyle(0x60a5fa, 0.25).fillRect(0, VIEWPORT_H - 154, VIEWPORT_W, 2);
+    chrome.fillStyle(0x0d1420, 0.94).fillRect(0, VIEWPORT_H - this.bottomPanelH, VIEWPORT_W, this.bottomPanelH);
+    chrome.fillStyle(0x60a5fa, 0.25).fillRect(0, VIEWPORT_H - this.bottomPanelH, VIEWPORT_W, 2);
     // Subtle vertical dividers between portrait / minimap / buttons areas
-    chrome.fillStyle(0xffffff, 0.05).fillRect(VIEWPORT_W / 2 - 118, VIEWPORT_H - 144, 1, 134);
-    chrome.fillStyle(0xffffff, 0.05).fillRect(VIEWPORT_W / 2 + 118, VIEWPORT_H - 144, 1, 134);
+    chrome.fillStyle(0xffffff, 0.05).fillRect(VIEWPORT_W / 2 - 106, VIEWPORT_H - this.bottomBarH + 10, 1, this.bottomBarH - 20);
+    chrome.fillStyle(0xffffff, 0.05).fillRect(VIEWPORT_W / 2 + 106, VIEWPORT_H - this.bottomBarH + 10, 1, this.bottomBarH - 20);
 
     this.resourceText = this.add.text(16, 10, '', {
-      fontFamily: 'Trebuchet MS, monospace', fontSize: '18px', color: '#ffe066', fontStyle: 'bold',
+      fontFamily: 'Trebuchet MS, monospace', fontSize: this.compactUi ? '16px' : '18px', color: '#ffe066', fontStyle: 'bold',
     });
     this.resourceText.setShadow(0, 2, '#000000', 5, true, true);
 
-    this.gameTimerText = this.add.text(VIEWPORT_W - 16, 10, '0:00', {
-      fontFamily: 'Trebuchet MS, monospace', fontSize: '16px', color: '#cbd5e1',
+    this.gameTimerText = this.add.text(VIEWPORT_W - 56, 10, '0:00', {
+      fontFamily: 'Trebuchet MS, monospace', fontSize: this.compactUi ? '14px' : '16px', color: '#cbd5e1',
     }).setOrigin(1, 0);
     this.gameTimerText.setShadow(0, 2, '#000000', 4, true, true);
 
-    this.idleText = this.add.text(VIEWPORT_W - 120, 10, '', {
-      fontFamily: 'Trebuchet MS, monospace', fontSize: '14px', color: '#fbbf24', fontStyle: 'bold',
+    this.idleText = this.add.text(VIEWPORT_W - 142, 10, '', {
+      fontFamily: 'Trebuchet MS, monospace', fontSize: this.compactUi ? '12px' : '14px', color: '#fbbf24', fontStyle: 'bold',
     }).setOrigin(1, 0).setInteractive({ useHandCursor: true });
     this.idleText.setShadow(0, 2, '#000000', 4, true, true);
     this.idleText.on('pointerdown', (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
@@ -77,21 +95,29 @@ export class UIScene extends Phaser.Scene {
       game.events.emit('ui:cycle-idle');
     });
 
-    this.selectionPortrait = this.add.image(58, VIEWPORT_H - 88, 'pixel').setOrigin(0.5).setVisible(false).setScale(1);
-    this.add.rectangle(58, VIEWPORT_H - 88, 88, 88, 0x000000, 0.22).setStrokeStyle(2, 0x5f7b95);
-    this.add.rectangle(58, VIEWPORT_H - 88, 98, 98, 0xffffff, 0.02).setStrokeStyle(1, 0xffffff, 0.08);
+    this.makeSettingsButton();
 
-    this.selectionText = this.add.text(116, VIEWPORT_H - 136, '', {
-      fontFamily: 'Trebuchet MS, monospace', fontSize: '13px', color: '#e2e8f0',
-    });
+    const portraitSize = this.compactUi ? 76 : 88;
+    const portraitFrame = this.compactUi ? 86 : 98;
+    const portraitX = this.compactUi ? 50 : 58;
+    const portraitY = VIEWPORT_H - this.bottomBarH / 2 - 4;
+    this.selectionPortrait = this.add.image(portraitX, portraitY, 'pixel').setOrigin(0.5).setVisible(false).setScale(1);
+    this.add.rectangle(portraitX, portraitY, portraitSize, portraitSize, 0x000000, 0.22).setStrokeStyle(2, 0x5f7b95);
+    this.add.rectangle(portraitX, portraitY, portraitFrame, portraitFrame, 0xffffff, 0.02).setStrokeStyle(1, 0xffffff, 0.08);
+
+    this.selectionText = this.add.text(this.compactUi ? 102 : 116, VIEWPORT_H - this.bottomBarH + 18, '', {
+      fontFamily: 'Trebuchet MS, monospace', fontSize: this.compactUi ? '11px' : '13px', color: '#e2e8f0',
+      wordWrap: { width: this.compactUi ? 330 : 430 },
+    }).setLineSpacing(this.compactUi ? 0 : 2);
     this.selectionText.setShadow(0, 2, '#000000', 4, true, true);
 
-    this.helpText = this.add.text(16, VIEWPORT_H - 4, '', {
-      fontFamily: 'Trebuchet MS, monospace', fontSize: '10px', color: '#7f95ab',
-    }).setOrigin(0, 1).setLineSpacing(2).setText(T.helpText);
+    this.helpText = this.add.text(14, VIEWPORT_H - 4, '', {
+      fontFamily: 'Trebuchet MS, monospace', fontSize: this.compactUi ? '9px' : '10px', color: '#7f95ab',
+      wordWrap: { width: this.compactUi ? 560 : 720 },
+    }).setOrigin(0, 1).setLineSpacing(this.compactUi ? 0 : 2).setText(T.helpText);
 
     this.modeIndicator = this.add.text(VIEWPORT_W / 2, 54, '', {
-      fontFamily: 'Trebuchet MS, monospace', fontSize: '16px', color: '#ef4444', fontStyle: 'bold',
+      fontFamily: 'Trebuchet MS, monospace', fontSize: this.compactUi ? '14px' : '16px', color: '#ef4444', fontStyle: 'bold',
       stroke: '#000000', strokeThickness: 3,
     }).setOrigin(0.5).setDepth(10002);
     this.modeIndicator.setBackgroundColor('rgba(9, 17, 26, 0.8)');
@@ -103,13 +129,13 @@ export class UIScene extends Phaser.Scene {
     }).setOrigin(0, 1).setDepth(10006).setVisible(false);
     this.tooltipText.setShadow(0, 2, '#000000', 4, true, true);
 
-    this.buttonsLayer = this.add.container(VIEWPORT_W - 370, VIEWPORT_H - 140);
+    this.buttonsLayer = this.add.container(this.buttonsOriginX, this.buttonsOriginY);
 
     this.trainProgress = this.add.graphics();
 
-    const mmW = 200, mmH = 130;
+    const mmW = this.minimapW, mmH = this.minimapH;
     const mmX = VIEWPORT_W / 2 - mmW / 2;
-    const mmY = VIEWPORT_H - mmH - 10;
+    const mmY = VIEWPORT_H - mmH - (this.compactUi ? 12 : 10);
     this.minimapBg = this.add.rectangle(mmX, mmY, mmW, mmH, 0x071018, 0.92).setOrigin(0, 0).setStrokeStyle(2, 0x617990).setInteractive({ useHandCursor: true });
     this.add.rectangle(mmX + mmW / 2, mmY + mmH / 2, mmW + 18, mmH + 18, 0xffffff, 0.02).setStrokeStyle(1, 0xffffff, 0.08);
 
@@ -207,6 +233,7 @@ export class UIScene extends Phaser.Scene {
   private onShutdown() {
     this.gameScene?.events.off('selection:changed', this.onSelectionChanged);
     this.gameScene = null;
+    this.closeSettingsMenu();
     this.input.removeAllListeners();
     this.input.keyboard?.removeAllListeners();
     this.selected = [];
@@ -471,11 +498,11 @@ export class UIScene extends Phaser.Scene {
   }
 
   private makeButton(i: number, label: string, onClick: () => void, enabled = true, tooltip?: string) {
-    const w = 175, h = 32;
+    const w = this.actionButtonW, h = this.actionButtonH;
     const col = i % 2;
     const row = Math.floor(i / 2);
-    const x = col * (w + 8);
-    const y = row * (h + 8);
+    const x = col * (w + this.actionButtonGap);
+    const y = row * (h + this.actionButtonGap);
     const bgColor = enabled ? 0x152432 : 0x101418;
     const borderColor = enabled ? 0x617990 : 0x2f3942;
     const accentColor = enabled ? 0x60a5fa : 0x374151;
@@ -484,13 +511,16 @@ export class UIScene extends Phaser.Scene {
     const bg = this.add.rectangle(x, y, w, h, bgColor, 0.96).setOrigin(0, 0).setStrokeStyle(1, borderColor).setInteractive({ useHandCursor: enabled });
     const accent = this.add.rectangle(x + 6, y + h / 2, 4, h - 10, accentColor, enabled ? 0.95 : 0.35).setOrigin(0, 0.5);
     const shine = this.add.rectangle(x + w / 2, y + 4, w - 12, 5, 0xffffff, 0.04).setOrigin(0.5, 0);
-    const txt = this.add.text(x + 14, y + 8, label, { fontFamily: 'Trebuchet MS, monospace', fontSize: '12px', color: textColor, fontStyle: 'bold' });
+    const txt = this.add.text(x + 14, y + (this.compactUi ? 7 : 8), label, {
+      fontFamily: 'Trebuchet MS, monospace', fontSize: this.actionButtonFont, color: textColor, fontStyle: 'bold',
+      fixedWidth: w - 20,
+    });
     txt.setShadow(0, 1, '#000000', 3, true, true);
     if (enabled) {
       bg.on('pointerover', () => {
         bg.setFillStyle(0x1d3347, 1);
         accent.setFillStyle(0x93c5fd, 1);
-        if (tooltip) this.showTooltip(x + VIEWPORT_W - 370, y + VIEWPORT_H - 140 - 6, tooltip);
+        if (tooltip) this.showTooltip(this.buttonsLayer.x + x, this.buttonsLayer.y + y - 6, tooltip);
       });
       bg.on('pointerout', () => {
         bg.setFillStyle(bgColor, 0.96);
@@ -503,6 +533,177 @@ export class UIScene extends Phaser.Scene {
       if (enabled) onClick();
     });
     this.buttonsLayer.add([shadow, bg, accent, shine, txt]);
+  }
+
+  private makeSettingsButton() {
+    const x = VIEWPORT_W - 28;
+    const y = 22;
+    const bg = this.add.rectangle(x, y, 32, 28, 0x152432, 0.96)
+      .setStrokeStyle(1, 0x617990)
+      .setInteractive({ useHandCursor: true });
+    const icon = this.add.text(x, y - 1, '⚙', {
+      fontFamily: 'Trebuchet MS, monospace', fontSize: '18px', color: '#e2e8f0', fontStyle: 'bold',
+    }).setOrigin(0.5);
+    bg.on('pointerover', () => bg.setFillStyle(0x1d3347, 1));
+    bg.on('pointerout', () => bg.setFillStyle(0x152432, 0.96));
+    bg.on('pointerdown', (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+      event.stopPropagation();
+      this.toggleSettingsMenu();
+    });
+    icon.setDepth(10001);
+    bg.setDepth(10000);
+  }
+
+  private toggleSettingsMenu() {
+    if (this.settingsOverlay) this.closeSettingsMenu();
+    else this.openSettingsMenu();
+  }
+
+  private openSettingsMenu() {
+    this.closeSettingsMenu();
+    this.settingsVolumes = this.readSoundSettings();
+    this.settingsValueTexts = {};
+    this.settingsBars = {};
+
+    const panelW = 430;
+    const panelH = 292;
+    const panelX = VIEWPORT_W - panelW - 18;
+    const panelY = 54;
+    const children: Phaser.GameObjects.GameObject[] = [];
+
+    const dim = this.add.rectangle(0, 0, VIEWPORT_W, VIEWPORT_H, 0x000000, 0.28)
+      .setOrigin(0, 0)
+      .setInteractive();
+    dim.on('pointerdown', (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+      event.stopPropagation();
+      this.closeSettingsMenu();
+    });
+    const panel = this.add.rectangle(panelX, panelY, panelW, panelH, 0x09111a, 0.98)
+      .setOrigin(0, 0)
+      .setStrokeStyle(2, 0x617990)
+      .setInteractive();
+    panel.on('pointerdown', (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => event.stopPropagation());
+    const title = this.add.text(panelX + 18, panelY + 14, T.settings, {
+      fontFamily: 'Trebuchet MS, monospace', fontSize: '18px', color: '#f8fafc', fontStyle: 'bold',
+    });
+    children.push(dim, panel, title);
+
+    this.makeVolumeRow(children, 'music', T.musicVolume, panelX + 18, panelY + 58);
+    this.makeVolumeRow(children, 'effects', T.effectsVolume, panelX + 18, panelY + 112);
+    this.makeVolumeRow(children, 'voice', T.voiceVolume, panelX + 18, panelY + 166);
+
+    children.push(...this.makeModalButton(panelX + 18, panelY + 226, 188, 38, T.fullscreen, () => this.toggleFullscreen()));
+    this.settingsFullscreenText = this.add.text(panelX + 220, panelY + 236, '', {
+      fontFamily: 'Trebuchet MS, monospace', fontSize: '13px', color: '#cbd5e1', fontStyle: 'bold',
+    });
+    children.push(this.settingsFullscreenText);
+    children.push(...this.makeModalButton(panelX + panelW - 128, panelY + 226, 110, 38, T.close, () => this.closeSettingsMenu()));
+
+    this.settingsOverlay = this.add.container(0, 0, children).setDepth(10020);
+    this.refreshSettingsValues();
+  }
+
+  private makeVolumeRow(children: Phaser.GameObjects.GameObject[], kind: VolumeKind, label: string, x: number, y: number) {
+    const text = this.add.text(x, y, label, {
+      fontFamily: 'Trebuchet MS, monospace', fontSize: '13px', color: '#cbd5e1', fontStyle: 'bold',
+    });
+    const value = this.add.text(x + 92, y, '', {
+      fontFamily: 'Trebuchet MS, monospace', fontSize: '13px', color: '#f8fafc',
+    }).setOrigin(1, 0);
+    const barW = 154;
+    const barBg = this.add.rectangle(x + 108, y + 10, barW, 8, 0x0f172a, 1)
+      .setOrigin(0, 0.5)
+      .setStrokeStyle(1, 0x334155);
+    const barFill = this.add.rectangle(x + 108, y + 10, barW, 8, 0x60a5fa, 0.95).setOrigin(0, 0.5);
+    children.push(text, value, barBg, barFill);
+    children.push(...this.makeModalButton(x + 276, y - 6, 42, 30, '-', () => this.adjustVolume(kind, -0.1)));
+    children.push(...this.makeModalButton(x + 326, y - 6, 42, 30, '+', () => this.adjustVolume(kind, 0.1)));
+    this.settingsValueTexts[kind] = value;
+    this.settingsBars[kind] = { fill: barFill, width: barW };
+  }
+
+  private makeModalButton(x: number, y: number, w: number, h: number, label: string, onClick: () => void): Phaser.GameObjects.GameObject[] {
+    const bg = this.add.rectangle(x, y, w, h, 0x152432, 0.96)
+      .setOrigin(0, 0)
+      .setStrokeStyle(1, 0x617990)
+      .setInteractive({ useHandCursor: true });
+    const txt = this.add.text(x + w / 2, y + h / 2, label, {
+      fontFamily: 'Trebuchet MS, monospace', fontSize: '13px', color: '#f8fafc', fontStyle: 'bold',
+    }).setOrigin(0.5);
+    bg.on('pointerover', () => bg.setFillStyle(0x1d3347, 1));
+    bg.on('pointerout', () => bg.setFillStyle(0x152432, 0.96));
+    bg.on('pointerdown', (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+      event.stopPropagation();
+      onClick();
+    });
+    return [bg, txt];
+  }
+
+  private closeSettingsMenu() {
+    this.settingsOverlay?.destroy(true);
+    this.settingsOverlay = null;
+    this.settingsFullscreenText = null;
+    this.settingsValueTexts = {};
+    this.settingsBars = {};
+  }
+
+  private readSoundSettings(): Record<VolumeKind, number> {
+    const snd = this.getSoundSystem();
+    const raw = typeof snd?.getSettings === 'function' ? snd.getSettings() : {};
+    const pick = (keys: string[], fallback: number) => {
+      for (const key of keys) {
+        const value = raw[key];
+        if (typeof value === 'number' && Number.isFinite(value)) return this.clampVolume(value);
+      }
+      return fallback;
+    };
+    return {
+      music: pick(['musicVolume', 'music'], this.settingsVolumes.music),
+      effects: pick(['effectsVolume', 'sfxVolume', 'effects'], this.settingsVolumes.effects),
+      voice: pick(['voiceVolume', 'voicesVolume', 'voice'], this.settingsVolumes.voice),
+    };
+  }
+
+  private getSoundSystem(): any {
+    return (this.scene.get('Game') as any)?.sound2;
+  }
+
+  private adjustVolume(kind: VolumeKind, delta: number) {
+    this.settingsVolumes[kind] = this.clampVolume(this.settingsVolumes[kind] + delta);
+    const snd = this.getSoundSystem();
+    const method: Record<VolumeKind, string> = {
+      music: 'setMusicVolume',
+      effects: 'setEffectsVolume',
+      voice: 'setVoiceVolume',
+    };
+    const setter = snd?.[method[kind]];
+    if (typeof setter === 'function') setter.call(snd, this.settingsVolumes[kind]);
+    this.refreshSettingsValues();
+  }
+
+  private refreshSettingsValues() {
+    (Object.keys(this.settingsVolumes) as VolumeKind[]).forEach((kind) => {
+      const value = this.settingsVolumes[kind];
+      this.settingsValueTexts[kind]?.setText(`${Math.round(value * 100)}%`);
+      const bar = this.settingsBars[kind];
+      bar?.fill.setDisplaySize(Math.max(2, bar.width * value), 8);
+    });
+    this.settingsFullscreenText?.setText((this.scale as any).isFullscreen ? T.fullscreenOn : T.fullscreenOff);
+  }
+
+  private toggleFullscreen() {
+    const scale = this.scale as any;
+    try {
+      if (scale.isFullscreen) scale.stopFullscreen();
+      else scale.startFullscreen();
+    } catch {
+      // Browsers can deny fullscreen outside a trusted gesture.
+    }
+    this.time.delayedCall(80, () => this.refreshSettingsValues());
+  }
+
+  private clampVolume(value: number) {
+    return Phaser.Math.Clamp(Math.round(value * 10) / 10, 0, 1);
   }
 
   private showTooltip(ax: number, ay: number, text: string) {

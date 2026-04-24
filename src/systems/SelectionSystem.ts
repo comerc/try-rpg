@@ -33,8 +33,13 @@ export class SelectionSystem {
     return { x: wp.x, y: wp.y };
   }
 
+  private isPrimaryPointer(pointer: Phaser.Input.Pointer): boolean {
+    const event = (pointer as any).event;
+    return pointer.leftButtonDown() || event?.pointerType === 'touch' || event?.type?.startsWith?.('touch');
+  }
+
   onPointerDown(pointer: Phaser.Input.Pointer) {
-    if (!pointer.leftButtonDown()) return;
+    if (!this.isPrimaryPointer(pointer)) return;
     if (this.dragStart) {
       Logger.diag(`selection: stray dragStart on pointerdown, cancelling`);
       this.cancelDrag();

@@ -19,6 +19,27 @@ import { FogOfWar } from '../systems/FogOfWar';
 import { T, buildingName } from '../i18n';
 import { Logger } from '../systems/Logger';
 
+const CAMERA_MIN_ZOOM = 0.5;
+const CAMERA_MAX_ZOOM = 2;
+const TOUCH_LONG_PRESS_MS = 520;
+const TOUCH_MOVE_CANCEL_PX = 14;
+const TOUCH_GESTURE_MOVE_PX = 3;
+const WHEEL_ZOOM_SPEED = 0.0015;
+
+type TouchPoint = {
+  startX: number;
+  startY: number;
+  x: number;
+  y: number;
+};
+
+type TouchGesture = {
+  lastCenterX: number;
+  lastCenterY: number;
+  lastDistance: number;
+  moved: boolean;
+};
+
 export class GameScene extends Phaser.Scene {
   map!: GameMap;
   path!: Pathfinding;
@@ -46,22 +67,35 @@ export class GameScene extends Phaser.Scene {
   lastClickTime = 0;
   lastClickedEntity: Entity | null = null;
   private isEndingGame = false;
+  private touchPointers = new Map<number, TouchPoint>();
+  private touchGesture: TouchGesture | null = null;
+  private suppressSelectionPointerIds = new Set<number>();
+  private longPressTimer: Phaser.Time.TimerEvent | null = null;
+  private longPressFiredPointerId: number | null = null;
 
   private readonly onAiTrain = (bld: Building, kind: UnitKind) => this.requestTrain(bld, kind);
   private readonly onUiTrain = (bld: Building, kind: UnitKind) => {
-    this.requestTrain(bld, kind);
+    const queued = this.requestTrain(bld, kind);
     this.sound2.play('click');
+    if (queued) this.sound2.voice('ready');
   };
-  private readonly onUiBuildStart = (kind: BuildingKind) => this.beginBuildPlacement(kind);
+  private readonly onUiBuildStart = (kind: BuildingKind) => {
+    this.beginBuildPlacement(kind);
+  };
   private readonly onUiStop = () => {
     this.command.stop(this.playerSelectedUnits());
     this.sound2.play('order');
+    this.sound2.voice('cancel');
   };
   private readonly onUiHold = () => {
     this.command.hold(this.playerSelectedUnits());
     this.sound2.play('order');
+    this.sound2.voice('order');
   };
-  private readonly onUiRepair = () => this.beginRepairMode();
+  private readonly onUiRepair = () => {
+    this.beginRepairMode();
+    this.sound2.voice('work');
+  };
   private readonly onUiCycleIdle = () => this.groups.cycleIdleWorker();
 
   constructor() { super('Game'); }
@@ -76,6 +110,11 @@ export class GameScene extends Phaser.Scene {
     this.lastClickTime = 0;
     this.lastClickedEntity = null;
     this.isEndingGame = false;
+    this.touchPointers.clear();
+    this.touchGesture = null;
+    this.suppressSelectionPointerIds.clear();
+    this.cancelLongPress();
+    this.longPressFiredPointerId = null;
     this.pendingBuild = null;
     this.ghost?.destroy();
     this.ghost = null;
@@ -95,6 +134,7 @@ export class GameScene extends Phaser.Scene {
     this.path = new Pathfinding(this.map);
 
     this.sound2 = new SoundSystem(this);
+    this.sound2.startMusic();
     this.vfx = new VFXSystem(this);
     this.notifications = new NotificationSystem(this);
 
@@ -160,6 +200,7 @@ export class GameScene extends Phaser.Scene {
     if ((!playerTH || !enemyTH) && !this.isEndingGame) {
       this.isEndingGame = true;
       this.sound2.play(!enemyTH ? 'victory' : 'defeat');
+      this.sound2.voice(!enemyTH ? 'victory' : 'defeat');
       this.scene.stop('UI');
       this.scene.start('GameOver', { win: !enemyTH, time: this.gameTime, kills: this.kills, buildingsBuilt: this.buildingsBuilt });
     }
@@ -179,6 +220,10 @@ export class GameScene extends Phaser.Scene {
     this.command?.destroy?.();
     this.groups?.destroy?.();
     this.sound2?.destroy?.();
+    this.cancelLongPress();
+    this.touchPointers.clear();
+    this.touchGesture = null;
+    this.suppressSelectionPointerIds.clear();
     this.input.removeAllListeners();
     this.input.keyboard?.removeAllListeners();
     this.cancelBuildPlacement();
@@ -256,20 +301,21 @@ export class GameScene extends Phaser.Scene {
     return r;
   }
 
-  private requestTrain(b: Building, kind: UnitKind) {
-    if (!b.isBuilt()) return;
+  private requestTrain(b: Building, kind: UnitKind): boolean {
+    if (!b.isBuilt()) return false;
     const def = UNIT_DEFS[kind];
     if (!this.economy.canTrain(b.team, kind)) {
       if (b.team === 'player') this.notifications.add(T.notEnoughResources, '#f59e0b');
-      return;
+      return false;
     }
-    if (!this.economy.spend(b.team, def.cost.gold, def.cost.wood)) return;
+    if (!this.economy.spend(b.team, def.cost.gold, def.cost.wood)) return false;
     if (!b.enqueue(kind)) {
       this.economy.refund(b.team, def.cost.gold, def.cost.wood);
       if (b.team === 'player') this.notifications.add(T.queueFull, '#f59e0b');
-      return;
+      return false;
     }
     b.applyTrainTime(kind, def.trainTime);
+    return true;
   }
 
   private onTrainCompleted = (b: Building, kind: UnitKind) => {
@@ -277,6 +323,10 @@ export class GameScene extends Phaser.Scene {
     const u = this.spawnUnit(spawn.x, spawn.y, kind, b.team);
     const rp = b.rallyPoint;
     if (rp) this.command.moveTo([u], rp.x, rp.y);
+    if (b.team === 'player') {
+      this.sound2.play('notify');
+      this.sound2.voice('ready');
+    }
   };
 
   private onEntityDamaged = (victim: Entity, attacker?: Entity) => {
@@ -287,6 +337,7 @@ export class GameScene extends Phaser.Scene {
     const msg = victim instanceof Building ? T.baseUnderAttack : T.underAttack;
     this.notifications.add(msg, '#ef4444');
     this.sound2.play('notify');
+    this.sound2.voice('underAttack');
     // Camera-pulse via minimap (handled in UI via registry)
     const r = this.registry.get('lastAttack:player') ?? {};
     this.registry.set('lastAttack:player', { x: victim.x, y: victim.y, at: now });
@@ -321,6 +372,9 @@ export class GameScene extends Phaser.Scene {
 
   private setupInput() {
     this.input.mouse?.disableContextMenu();
+    const pointerTotal = (this.input as any).manager?.pointersTotal;
+    const missingPointers = typeof pointerTotal === 'number' ? Math.max(0, 3 - pointerTotal) : 2;
+    if (missingPointers > 0) this.input.addPointer(missingPointers);
 
     // Attach pointer handlers directly to the GameScene input plugin.
     // Earlier refactor routed pointer events via UIScene, which silently
@@ -330,6 +384,14 @@ export class GameScene extends Phaser.Scene {
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => this.handlePointerMove(pointer));
     this.input.on('pointerup', (pointer: Phaser.Input.Pointer) => this.handlePointerUp(pointer));
     this.input.on('pointerupoutside', (pointer: Phaser.Input.Pointer) => this.handlePointerUp(pointer));
+    this.input.on('wheel', (
+      pointer: Phaser.Input.Pointer,
+      _objects: Phaser.GameObjects.GameObject[],
+      deltaX: number,
+      deltaY: number,
+      deltaZ: number,
+      event: any,
+    ) => this.handleWheel(pointer, deltaX, deltaY, deltaZ, event));
 
     // Only cancel a stuck drag when the window loses focus or goes hidden.
     // (Avoid hooking window 'pointerup' — it fires before Phaser's queued
@@ -361,8 +423,12 @@ export class GameScene extends Phaser.Scene {
 
   handlePointerDown(pointer: Phaser.Input.Pointer) {
     Logger.diag(`game pointerdown screen=(${pointer.x.toFixed(0)},${pointer.y.toFixed(0)}) btns=${pointer.buttons} L=${pointer.leftButtonDown()} R=${pointer.rightButtonDown()} pending=${this.pendingBuild}`);
+    const ui = this.scene.get('UI') as any;
+    const isTouch = this.trackTouchPointer(pointer);
+    const commandClick = this.isCommandPointer(pointer);
+
     if (this.pendingBuild) {
-      if (pointer.rightButtonDown()) {
+      if (pointer.rightButtonDown() || commandClick) {
         this.cancelBuildPlacement();
         this.sound2.play('cancel');
         return;
@@ -371,14 +437,14 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    const ui = this.scene.get('UI') as any;
+    if (isTouch && this.handleTouchPointerDown(pointer, ui)) return;
 
-    if (pointer.rightButtonDown()) {
+    if (commandClick) {
       this.handleRightClick(pointer, ui);
       return;
     }
 
-    if (pointer.leftButtonDown()) {
+    if (pointer.leftButtonDown() || isTouch) {
       if (ui?.isRepairMode?.()) {
         this.handleRepairClick(pointer);
         return;
@@ -388,6 +454,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   handlePointerMove(pointer: Phaser.Input.Pointer) {
+    const isTouch = this.trackTouchPointer(pointer);
+    if (isTouch) {
+      if (this.handleTouchPointerMove(pointer)) return;
+    }
     if (this.pendingBuild && this.ghost) {
       const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
       const tx = Math.floor(world.x / TILE);
@@ -403,11 +473,14 @@ export class GameScene extends Phaser.Scene {
 
   handlePointerUp(pointer: Phaser.Input.Pointer) {
     Logger.diag(`game pointerup screen=(${pointer.x.toFixed(0)},${pointer.y.toFixed(0)}) pending=${this.pendingBuild}`);
+    const wasTouch = this.isTrackedTouchPointer(pointer) || this.isTouchPointer(pointer);
+    if (wasTouch && this.handleTouchPointerUp(pointer)) return;
     if (!this.pendingBuild) {
       const sel = this.selection.onPointerUp(pointer);
       if (sel && sel.length === 1) {
         const now = this.time.now;
         const single = sel[0];
+        if (single instanceof Unit && single.team === 'player') this.sound2.voice('select');
         if (this.lastClickedEntity === single && now - this.lastClickTime < 320) {
           this.selectSameTypeOnScreen(single);
         }
@@ -415,6 +488,203 @@ export class GameScene extends Phaser.Scene {
         this.lastClickedEntity = single;
       }
     }
+  }
+
+  private pointerKey(pointer: Phaser.Input.Pointer): number {
+    const raw = pointer as any;
+    const event = this.pointerEvent(pointer);
+    return event?.pointerId ?? raw.pointerId ?? raw.id ?? event?.identifier ?? raw.identifier ?? 0;
+  }
+
+  private pointerEvent(pointer: Phaser.Input.Pointer): any {
+    return (pointer as any).event;
+  }
+
+  private isTouchPointer(pointer: Phaser.Input.Pointer): boolean {
+    const event = this.pointerEvent(pointer);
+    return event?.pointerType === 'touch' || event?.type?.startsWith?.('touch') || (pointer as any).wasTouch === true;
+  }
+
+  private isTrackedTouchPointer(pointer: Phaser.Input.Pointer): boolean {
+    return this.touchPointers.has(this.pointerKey(pointer));
+  }
+
+  private isCommandPointer(pointer: Phaser.Input.Pointer): boolean {
+    const event = this.pointerEvent(pointer);
+    return pointer.rightButtonDown() || (pointer.leftButtonDown() && event?.altKey === true);
+  }
+
+  private trackTouchPointer(pointer: Phaser.Input.Pointer): boolean {
+    if (!this.isTouchPointer(pointer)) return false;
+    const id = this.pointerKey(pointer);
+    const existing = this.touchPointers.get(id);
+    if (existing) {
+      existing.x = pointer.x;
+      existing.y = pointer.y;
+    } else {
+      this.touchPointers.set(id, { startX: pointer.x, startY: pointer.y, x: pointer.x, y: pointer.y });
+    }
+    return true;
+  }
+
+  private handleTouchPointerDown(pointer: Phaser.Input.Pointer, ui: any): boolean {
+    const id = this.pointerKey(pointer);
+    this.longPressFiredPointerId = null;
+    if (this.touchPointers.size >= 2) {
+      this.cancelLongPress();
+      this.selection.cancelDrag();
+      for (const pointerId of this.touchPointers.keys()) this.suppressSelectionPointerIds.add(pointerId);
+      this.startTouchGesture();
+      return true;
+    }
+    this.scheduleLongPress(pointer, ui);
+    return false;
+  }
+
+  private handleTouchPointerMove(pointer: Phaser.Input.Pointer): boolean {
+    const id = this.pointerKey(pointer);
+    const point = this.touchPointers.get(id);
+    if (point && Math.hypot(point.x - point.startX, point.y - point.startY) > TOUCH_MOVE_CANCEL_PX) {
+      this.cancelLongPress();
+    }
+    if (this.touchPointers.size >= 2) {
+      this.updateTouchGesture();
+      return true;
+    }
+    return this.suppressSelectionPointerIds.has(id);
+  }
+
+  private handleTouchPointerUp(pointer: Phaser.Input.Pointer): boolean {
+    const id = this.pointerKey(pointer);
+    const point = this.touchPointers.get(id);
+    const countBefore = this.touchPointers.size;
+    const moved = point ? Math.hypot(point.x - point.startX, point.y - point.startY) > TOUCH_MOVE_CANCEL_PX : false;
+    const gestureMoved = this.touchGesture?.moved === true;
+    const suppressed = this.suppressSelectionPointerIds.has(id);
+    const firedLongPress = this.longPressFiredPointerId === id;
+    const twoFingerCommand = countBefore >= 2 && !gestureMoved && !moved && this.playerSelectedUnits().length > 0;
+
+    this.touchPointers.delete(id);
+    this.suppressSelectionPointerIds.delete(id);
+    if (this.touchPointers.size < 2) this.touchGesture = null;
+    if (this.touchPointers.size === 0) {
+      this.cancelLongPress();
+      this.suppressSelectionPointerIds.clear();
+      this.longPressFiredPointerId = null;
+    }
+
+    if (twoFingerCommand && !this.pendingBuild) {
+      this.selection.cancelDrag();
+      this.handleRightClick(pointer, this.scene.get('UI') as any);
+      return true;
+    }
+
+    return suppressed || firedLongPress || countBefore >= 2;
+  }
+
+  private scheduleLongPress(pointer: Phaser.Input.Pointer, ui: any) {
+    this.cancelLongPress();
+    const id = this.pointerKey(pointer);
+    this.longPressTimer = this.time.delayedCall(TOUCH_LONG_PRESS_MS, () => {
+      const point = this.touchPointers.get(id);
+      if (!point || this.touchPointers.size !== 1 || this.pendingBuild) return;
+      if (Math.hypot(point.x - point.startX, point.y - point.startY) > TOUCH_MOVE_CANCEL_PX) return;
+      if (this.playerSelectedUnits().length === 0) return;
+
+      // Long-press is treated as right-click on touch, so pointer-up must not clear selection.
+      this.longPressFiredPointerId = id;
+      this.suppressSelectionPointerIds.add(id);
+      this.selection.cancelDrag();
+      this.handleRightClick(pointer, ui);
+    });
+  }
+
+  private cancelLongPress() {
+    this.longPressTimer?.remove(false);
+    this.longPressTimer = null;
+  }
+
+  private startTouchGesture() {
+    const measure = this.measureTouchGesture();
+    if (!measure) return;
+    this.touchGesture = {
+      lastCenterX: measure.centerX,
+      lastCenterY: measure.centerY,
+      lastDistance: measure.distance,
+      moved: false,
+    };
+  }
+
+  private updateTouchGesture() {
+    const measure = this.measureTouchGesture();
+    if (!measure) return;
+    if (!this.touchGesture) {
+      this.startTouchGesture();
+      return;
+    }
+
+    const cam = this.cameras.main;
+    const dx = measure.centerX - this.touchGesture.lastCenterX;
+    const dy = measure.centerY - this.touchGesture.lastCenterY;
+    const distanceFactor = this.touchGesture.lastDistance > 0 ? measure.distance / this.touchGesture.lastDistance : 1;
+
+    if (Math.hypot(dx, dy) > TOUCH_GESTURE_MOVE_PX || Math.abs(measure.distance - this.touchGesture.lastDistance) > TOUCH_GESTURE_MOVE_PX) {
+      this.touchGesture.moved = true;
+      for (const pointerId of this.touchPointers.keys()) this.suppressSelectionPointerIds.add(pointerId);
+    }
+
+    cam.scrollX -= dx / cam.zoom;
+    cam.scrollY -= dy / cam.zoom;
+    if (Number.isFinite(distanceFactor) && Math.abs(distanceFactor - 1) > 0.01) {
+      this.zoomCameraAt(measure.centerX, measure.centerY, cam.zoom * distanceFactor);
+    }
+
+    this.touchGesture.lastCenterX = measure.centerX;
+    this.touchGesture.lastCenterY = measure.centerY;
+    this.touchGesture.lastDistance = measure.distance;
+  }
+
+  private measureTouchGesture(): { centerX: number; centerY: number; distance: number } | null {
+    const points = Array.from(this.touchPointers.values());
+    if (points.length < 2) return null;
+    const a = points[0];
+    const b = points[1];
+    return {
+      centerX: (a.x + b.x) / 2,
+      centerY: (a.y + b.y) / 2,
+      distance: Math.hypot(a.x - b.x, a.y - b.y),
+    };
+  }
+
+  private handleWheel(
+    pointer: Phaser.Input.Pointer,
+    deltaX: number,
+    deltaY: number,
+    deltaZ: number,
+    event?: any,
+  ) {
+    event?.preventDefault?.();
+    const nativeEvent = event?.event ?? this.pointerEvent(pointer) ?? event;
+    const zoomWheel = nativeEvent?.ctrlKey === true || nativeEvent?.metaKey === true || Math.abs(deltaZ) > 0;
+    if (zoomWheel) {
+      this.zoomCameraAt(pointer.x, pointer.y, this.cameras.main.zoom * Math.exp(-deltaY * WHEEL_ZOOM_SPEED));
+      return;
+    }
+
+    const cam = this.cameras.main;
+    const panX = (nativeEvent?.shiftKey ? deltaY + deltaX : deltaX) / cam.zoom;
+    const panY = (nativeEvent?.shiftKey ? 0 : deltaY) / cam.zoom;
+    cam.scrollX += panX;
+    cam.scrollY += panY;
+  }
+
+  private zoomCameraAt(screenX: number, screenY: number, zoom: number) {
+    const cam = this.cameras.main;
+    const before = cam.getWorldPoint(screenX, screenY);
+    cam.setZoom(Phaser.Math.Clamp(zoom, CAMERA_MIN_ZOOM, CAMERA_MAX_ZOOM));
+    const after = cam.getWorldPoint(screenX, screenY);
+    cam.scrollX += before.x - after.x;
+    cam.scrollY += before.y - after.y;
   }
 
   private selectSameTypeOnScreen(e: Entity) {
@@ -470,6 +740,7 @@ export class GameScene extends Phaser.Scene {
       this.vfx.spawnSparks(world.x, world.y, 0xff4444, 8);
       this.notifications.add(T.attackMoveNotif, '#ef4444');
       this.sound2.play('order');
+      this.sound2.voice('attack');
       return;
     }
 
@@ -483,6 +754,7 @@ export class GameScene extends Phaser.Scene {
       this.command.patrol(units, pointA, { x: world.x, y: world.y });
       this.notifications.add(T.patrolSetNotif, '#22c55e');
       this.sound2.play('order');
+      this.sound2.voice('order');
       return;
     }
 
@@ -509,6 +781,7 @@ export class GameScene extends Phaser.Scene {
         const fighters = units.filter((u) => u.kind !== 'peasant');
         if (fighters.length > 0) this.command.moveTo(fighters, world.x, world.y);
         this.sound2.play('order');
+        this.sound2.voice(peasants.length > 0 ? 'work' : 'order');
         return;
       }
       if (target instanceof Building && (target as any).team === 'player') {
@@ -516,12 +789,14 @@ export class GameScene extends Phaser.Scene {
           const peasant = units.find(u => u.kind === 'peasant');
           if (peasant) this.command.buildWith(peasant, target);
           this.sound2.play('order');
+          this.sound2.voice('build');
           return;
         }
         if (target.isBuilt() && target.hp < target.maxHp && units.some(u => u.kind === 'peasant')) {
           const peasants = units.filter(u => u.kind === 'peasant');
           this.command.repair(peasants, target);
           this.sound2.play('order');
+          this.sound2.voice('work');
           return;
         }
         target.setRallyPoint(world.x, world.y);
@@ -533,12 +808,14 @@ export class GameScene extends Phaser.Scene {
         this.command.attackTarget(units, target as Entity);
         this.vfx.spawnSparks(world.x, world.y, 0xff4444, 4);
         this.sound2.play('order');
+        this.sound2.voice('attack');
         return;
       }
     }
     this.command.moveTo(units, world.x, world.y);
     this.vfx.spawnSparks(world.x, world.y, 0x3b82f6, 4);
     this.sound2.play('order');
+    this.sound2.voice('order');
   }
 
   private setupCamera() {
@@ -563,13 +840,13 @@ export class GameScene extends Phaser.Scene {
       if (!(ev.metaKey || ev.ctrlKey)) return;
       if (ev.key === '=' || ev.key === '+') {
         ev.preventDefault();
-        cam.setZoom(Phaser.Math.Clamp(cam.zoom + 0.1, 0.5, 2));
+        this.zoomCameraAt(cam.x + cam.width / 2, cam.y + cam.height / 2, cam.zoom + 0.1);
       } else if (ev.key === '-' || ev.key === '_') {
         ev.preventDefault();
-        cam.setZoom(Phaser.Math.Clamp(cam.zoom - 0.1, 0.5, 2));
+        this.zoomCameraAt(cam.x + cam.width / 2, cam.y + cam.height / 2, cam.zoom - 0.1);
       } else if (ev.key === '0') {
         ev.preventDefault();
-        cam.setZoom(1);
+        this.zoomCameraAt(cam.x + cam.width / 2, cam.y + cam.height / 2, 1);
       }
     };
     window.addEventListener('keydown', handleZoomKey);
@@ -603,6 +880,7 @@ export class GameScene extends Phaser.Scene {
     }
     this.pendingBuild = kind;
     this.ghost = this.add.image(0, 0, `bld-${kind}-player-d`).setAlpha(0.6).setDepth(5000);
+    this.sound2.voice('build');
   }
 
   private cancelBuildPlacement() {
@@ -642,5 +920,6 @@ export class GameScene extends Phaser.Scene {
     this.cancelBuildPlacement();
     this.notifications.add(`${T.buildingNotif} ${buildingName(kind)}...`, '#facc15');
     this.sound2.play('order');
+    this.sound2.voice('build');
   }
 }

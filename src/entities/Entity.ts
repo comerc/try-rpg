@@ -64,23 +64,9 @@ export abstract class Entity extends Phaser.GameObjects.Container {
     const ringRadius = this.radius + 2.5;
     this.hpBarWidth = Math.max(30, this.radius * 2.55);
 
-    this.shadow.clear();
-    this.shadow.fillStyle(0x000000, 0.22);
-    this.shadow.fillEllipse(0, this.radius + 4.5, this.radius * 2.2, this.radius * 0.68);
-    this.shadow.fillStyle(0x000000, 0.1);
-    this.shadow.fillEllipse(0, this.radius + 2.2, this.radius * 1.65, this.radius * 0.38);
-    this.shadow.fillStyle(TEAM_COLOR[this.team], 0.05);
-    this.shadow.fillEllipse(0, this.radius + 3.3, this.radius * 1.7, this.radius * 0.28);
+    this.redrawShadow();
 
-    this.teamRing.clear();
-    this.teamRing.lineStyle(6, TEAM_COLOR[this.team], 0.12);
-    this.teamRing.strokeCircle(0, 0, ringRadius + 1.9);
-    this.teamRing.lineStyle(2.4, TEAM_COLOR[this.team], 0.88);
-    this.teamRing.strokeCircle(0, 0, ringRadius);
-    this.teamRing.lineStyle(1.1, 0xffffff, 0.1);
-    this.teamRing.strokeCircle(0, 0, ringRadius - 2);
-    this.teamRing.lineStyle(0.8, 0x000000, 0.18);
-    this.teamRing.strokeCircle(0, 0, ringRadius + 3.2);
+    this.redrawTeamRing(ringRadius);
 
     this.flashGraphics.clear();
     this.flashGraphics.fillStyle(0xffffff, 1);
@@ -92,6 +78,28 @@ export abstract class Entity extends Phaser.GameObjects.Container {
 
     if (this.carryKind) this.drawCarryIndicator(this.carryKind);
     this.updateHpBar();
+  }
+
+  protected redrawTeamRing(ringRadius: number) {
+    this.teamRing.clear();
+    this.teamRing.lineStyle(6, TEAM_COLOR[this.team], 0.12);
+    this.teamRing.strokeCircle(0, 0, ringRadius + 1.9);
+    this.teamRing.lineStyle(2.4, TEAM_COLOR[this.team], 0.88);
+    this.teamRing.strokeCircle(0, 0, ringRadius);
+    this.teamRing.lineStyle(1.1, 0xffffff, 0.1);
+    this.teamRing.strokeCircle(0, 0, ringRadius - 2);
+    this.teamRing.lineStyle(0.8, 0x000000, 0.18);
+    this.teamRing.strokeCircle(0, 0, ringRadius + 3.2);
+  }
+
+  protected redrawShadow() {
+    this.shadow.clear();
+    this.shadow.fillStyle(0x000000, 0.22);
+    this.shadow.fillEllipse(0, this.radius + 4.5, this.radius * 2.2, this.radius * 0.68);
+    this.shadow.fillStyle(0x000000, 0.1);
+    this.shadow.fillEllipse(0, this.radius + 2.2, this.radius * 1.65, this.radius * 0.38);
+    this.shadow.fillStyle(TEAM_COLOR[this.team], 0.05);
+    this.shadow.fillEllipse(0, this.radius + 3.3, this.radius * 1.7, this.radius * 0.28);
   }
 
   setSelected(v: boolean) {

@@ -1,0 +1,29 @@
+version: '3'
+
+tasks:
+  default:
+    desc: Start the local dev server
+    cmds:
+      - task: dev
+
+  install:
+    desc: Install npm dependencies
+    cmds:
+      - npm install
+
+  dev:
+    desc: Run Vite dev server on localhost
+    cmds:
+      - npm run dev -- --host 127.0.0.1
+
+  build:
+    desc: Type-check and build production bundle
+    cmds:
+      - npm run build
+
+  preview:
+    desc: Preview the production build locally
+    deps:
+      - build
+    cmds:
+      - npm run preview -- --host 127.0.0.1
