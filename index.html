@@ -2,7 +2,7 @@
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
     <link rel="icon" href="data:," />
     <title>RTS — Warcraft-style</title>
     <style>
@@ -13,6 +13,10 @@
         color: #e8e8e8;
         font-family: system-ui, -apple-system, sans-serif;
         overflow: hidden;
+        overscroll-behavior: none;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
       }
       #game {
         width: 100vw;
@@ -21,6 +25,7 @@
       #game canvas {
         display: block;
         margin: 0 auto;
+        touch-action: none;
       }
     </style>
   </head>

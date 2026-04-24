@@ -14,12 +14,16 @@ export class GameOverScene extends Phaser.Scene {
 
   create(data: Data) {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.onShutdown, this);
-    this.add.rectangle(0, 0, VIEWPORT_W, VIEWPORT_H, 0x000000, 0.9).setOrigin(0, 0);
+    this.add.image(VIEWPORT_W / 2, VIEWPORT_H / 2, data.win ? 'splash-victory' : 'splash-defeat')
+      .setDisplaySize(VIEWPORT_W, VIEWPORT_H);
+    this.add.rectangle(0, 0, VIEWPORT_W, VIEWPORT_H, data.win ? 0x052512 : 0x1b0705, 0.32).setOrigin(0, 0);
+    this.add.rectangle(0, VIEWPORT_H * 0.55, VIEWPORT_W, VIEWPORT_H * 0.45, 0x020712, 0.68).setOrigin(0, 0);
+
     const title = data.win ? T.victory : T.defeat;
     const color = data.win ? '#22c55e' : '#ef4444';
-    const glow = this.add.text(VIEWPORT_W / 2, VIEWPORT_H / 2 - 120, title, {
-      fontFamily: 'monospace', fontSize: '72px', color, fontStyle: 'bold',
-      stroke: '#000000', strokeThickness: 6,
+    const glow = this.add.text(VIEWPORT_W / 2, VIEWPORT_H - 330, title, {
+      fontFamily: 'Trebuchet MS, monospace', fontSize: '78px', color, fontStyle: 'bold',
+      stroke: '#000000', strokeThickness: 8,
     }).setOrigin(0.5);
     this.tweens.add({ targets: glow, scale: 1.05, yoyo: true, duration: 1400, repeat: -1, ease: 'Sine.easeInOut' });
 
@@ -27,8 +31,8 @@ export class GameOverScene extends Phaser.Scene {
       const totalSec = Math.floor(data.time / 1000);
       const min = Math.floor(totalSec / 60);
       const sec = totalSec % 60;
-      this.add.text(VIEWPORT_W / 2, VIEWPORT_H / 2 - 30, `${T.gameTime}: ${min}:${sec.toString().padStart(2, '0')}`, {
-        fontFamily: 'monospace', fontSize: '20px', color: '#cbd5e1',
+      this.add.text(VIEWPORT_W / 2, VIEWPORT_H - 228, `${T.gameTime}: ${min}:${sec.toString().padStart(2, '0')}`, {
+        fontFamily: 'Trebuchet MS, monospace', fontSize: '22px', color: '#dbeafe',
       }).setOrigin(0.5);
     }
 
@@ -36,18 +40,22 @@ export class GameOverScene extends Phaser.Scene {
     if (data.kills) stats.push(`${T.kills}: ${data.kills.player ?? 0}`);
     if (data.buildingsBuilt) stats.push(`${T.buildingsStat}: ${data.buildingsBuilt.player ?? 0}`);
     if (stats.length > 0) {
-      this.add.text(VIEWPORT_W / 2, VIEWPORT_H / 2 + 5, stats.join('     '), {
-        fontFamily: 'monospace', fontSize: '18px', color: '#94a3b8',
+      this.add.text(VIEWPORT_W / 2, VIEWPORT_H - 186, stats.join('     '), {
+        fontFamily: 'Trebuchet MS, monospace', fontSize: '18px', color: '#bfdbfe',
       }).setOrigin(0.5);
     }
 
-    const btn = this.add.rectangle(VIEWPORT_W / 2, VIEWPORT_H / 2 + 70, 260, 56, 0x1f2937, 1).setStrokeStyle(2, 0x4b5563).setInteractive({ useHandCursor: true });
-    this.add.text(VIEWPORT_W / 2, VIEWPORT_H / 2 + 70, T.playAgain, {
-      fontFamily: 'monospace', fontSize: '22px', color: '#ffffff',
+    const btn = this.add.rectangle(VIEWPORT_W / 2, VIEWPORT_H - 112, 280, 60, 0x1f5f9f, 0.95).setStrokeStyle(2, 0x93c5fd).setInteractive({ useHandCursor: true });
+    this.add.text(VIEWPORT_W / 2, VIEWPORT_H - 112, T.playAgain, {
+      fontFamily: 'Trebuchet MS, monospace', fontSize: '23px', color: '#ffffff', fontStyle: 'bold',
     }).setOrigin(0.5);
-    btn.on('pointerover', () => btn.setFillStyle(0x374151));
-    btn.on('pointerout', () => btn.setFillStyle(0x1f2937));
+    btn.on('pointerover', () => btn.setFillStyle(0x2b76bf, 1));
+    btn.on('pointerout', () => btn.setFillStyle(0x1f5f9f, 0.95));
     btn.on('pointerdown', () => this.restart());
+
+    this.add.text(VIEWPORT_W / 2, VIEWPORT_H - 58, T.finalHint, {
+      fontFamily: 'Trebuchet MS, monospace', fontSize: '14px', color: '#bfdbfe',
+    }).setOrigin(0.5);
 
     this.input.keyboard?.once('keydown-SPACE', () => this.restart());
     this.input.keyboard?.once('keydown-ENTER', () => this.restart());

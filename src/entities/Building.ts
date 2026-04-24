@@ -66,6 +66,14 @@ export class Building extends Entity {
     this.redrawFacadeDetails(0);
   }
 
+  protected redrawShadow() {
+    this.shadow.clear();
+  }
+
+  protected redrawTeamRing(_ringRadius: number) {
+    this.teamRing.clear();
+  }
+
   setRallyPoint(x: number, y: number) {
     this.rallyPoint = { x, y };
   }
@@ -219,6 +227,11 @@ export class Building extends Entity {
   }
 
   private applyStageTexture(stage: 'foundation' | 'scaffold' | 'shell' | 'ready' | 'damaged') {
+    if (this.kind === 'tower' && stage === 'ready') {
+      const key = `bld-${this.kind}-${this.team}-d`;
+      if (this.sprite.texture.key !== key) this.sprite.setTexture(key);
+      return;
+    }
     const key = `bld-${this.kind}-${this.team}-${stage}`;
     const fallback = `bld-${this.kind}-${this.team}-d`;
     const next = this.scene.textures.exists(key) ? key : fallback;

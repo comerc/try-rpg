@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { BootScene } from './scenes/BootScene';
+import { MainMenuScene } from './scenes/MainMenuScene';
 import { GameScene } from './scenes/GameScene';
 import { UIScene } from './scenes/UIScene';
 import { GameOverScene } from './scenes/GameOverScene';
@@ -20,7 +21,7 @@ new Phaser.Game({
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
   input: { mouse: { preventDefaultDown: true, preventDefaultUp: true } },
-  scene: [BootScene, GameScene, UIScene, GameOverScene],
+  scene: [BootScene, MainMenuScene, GameScene, UIScene, GameOverScene],
   render: { pixelArt: false, antialias: true },
 });
 

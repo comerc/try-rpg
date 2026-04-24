@@ -31,6 +31,9 @@ export class BootScene extends Phaser.Scene {
     for (const key of generatedTextures) {
       this.load.image(key, `${base}/${key}.png`);
     }
+    this.load.image('splash-menu', `${base}/splashes/splash-menu.png`);
+    this.load.image('splash-victory', `${base}/splashes/splash-victory.png`);
+    this.load.image('splash-defeat', `${base}/splashes/splash-defeat.png`);
     this.loadAnimationFrames(`${base}/animation`);
   }
 
@@ -123,8 +126,7 @@ export class BootScene extends Phaser.Scene {
     this.makeDetailedTree('res-tree-d', 0x265c28, 0x5a3a1a);
     this.makeDetailedGoldmine('res-goldmine-d', 0xf5c93b, 0x665246);
 
-    this.scene.start('Game');
-    this.scene.launch('UI');
+    this.scene.start('MainMenu');
   }
 
   private makeTile(key: string, fill: number, stroke: number, highlight: number, detailCount: number) {
