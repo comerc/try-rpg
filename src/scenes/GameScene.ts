@@ -632,11 +632,10 @@ export class GameScene extends Phaser.Scene {
       this.cancelBuildPlacement();
       return;
     }
-    const peasants = this.entities.filter((e): e is Unit =>
-      e instanceof Unit && e.team === 'player' && e.kind === 'peasant' && !e.dead);
-    if (peasants.length > 0) {
-      peasants.sort((a, b2) => Phaser.Math.Distance.Between(a.x, a.y, b.x, b.y) - Phaser.Math.Distance.Between(b2.x, b2.y, b.x, b.y));
-      this.command.buildWith(peasants[0], b);
+    const selectedPeasants = this.playerSelectedUnits().filter((u) => u.kind === 'peasant');
+    if (selectedPeasants.length > 0) {
+      selectedPeasants.sort((a, b2) => Phaser.Math.Distance.Between(a.x, a.y, b.x, b.y) - Phaser.Math.Distance.Between(b2.x, b2.y, b.x, b.y));
+      this.command.buildWith(selectedPeasants[0], b);
     }
     this.cancelBuildPlacement();
     this.notifications.add(`${T.buildingNotif} ${buildingName(kind)}...`, '#facc15');

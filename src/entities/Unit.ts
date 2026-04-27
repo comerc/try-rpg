@@ -138,10 +138,11 @@ export class Unit extends Entity {
       return Math.hypot(this.fsm.dropoff.x - this.x, this.fsm.dropoff.y - this.y) - (this.fsm.dropoff as any).radius > 4;
     }
     if (this.fsm.kind === 'building') {
-      return Math.hypot(this.fsm.target.x - this.x, this.fsm.target.y - this.y) - (this.fsm.target as any).radius > 4;
+      const spot = this.buildStandSpot(this.fsm.target);
+      return Math.hypot(spot.x - this.x, spot.y - this.y) > 4;
     }
     if (this.fsm.kind === 'repair') {
-      return Math.hypot(this.fsm.target.x - this.x, this.fsm.target.y - this.y) - (this.fsm.target as any).radius > 4;
+      return this.distanceToBuildingRect(this.fsm.target) > 4;
     }
     return false;
   }
@@ -431,14 +432,14 @@ export class Unit extends Entity {
       this.fsm = { kind: 'idle' };
       return;
     }
-    const dx = s.target.x - this.x;
-    const dy = s.target.y - this.y;
-    const dist = Math.hypot(dx, dy) - (s.target as any).radius;
+    const spot = this.buildStandSpot(s.target);
+    const dx = spot.x - this.x;
+    const dy = spot.y - this.y;
+    const dist = Math.hypot(dx, dy);
     if (dist > 4) {
       const step = (this.speed * delta) / 1000;
-      const len = Math.hypot(dx, dy);
-      this.x += (dx / len) * step;
-      this.y += (dy / len) * step;
+      this.x += (dx / dist) * step;
+      this.y += (dy / dist) * step;
     } else {
       s.target.progressBuild(delta);
       this.buildParticleTimer += delta;
@@ -463,7 +464,7 @@ export class Unit extends Entity {
     }
     const dx = s.target.x - this.x;
     const dy = s.target.y - this.y;
-    const dist = Math.hypot(dx, dy) - (s.target as any).radius;
+    const dist = this.distanceToBuildingRect(s.target);
     if (dist > 4) {
       const step = (this.speed * delta) / 1000;
       const len = Math.hypot(dx, dy);
@@ -514,5 +515,17 @@ export class Unit extends Entity {
   }
 
   private tickHold(_time: number) {
+  }
+
+  private distanceToBuildingRect(b: Building): number {
+    const half = (b.size * TILE) / 2;
+    const dx = Math.max(b.x - half - this.x, 0, this.x - (b.x + half));
+    const dy = Math.max(b.y - half - this.y, 0, this.y - (b.y + half));
+    return Math.hypot(dx, dy);
+  }
+
+  private buildStandSpot(b: Building): { x: number; y: number } {
+    const half = (b.size * TILE) / 2;
+    return { x: b.x, y: b.y + half + 10 };
   }
 }
