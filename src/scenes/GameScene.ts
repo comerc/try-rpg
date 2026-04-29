@@ -574,7 +574,8 @@ export class GameScene extends Phaser.Scene {
 
   private setupCamera() {
     const cam = this.cameras.main;
-    let zoomOffset = 0;
+    const defaultZoomOffset = 0.5;
+    let zoomOffset = defaultZoomOffset;
     const applyZoom = () => {
       const currentCenter = cam.midPoint.clone();
       cam.setZoom(Phaser.Math.Clamp(viewportScale(this.scale.width, this.scale.height) + zoomOffset, 0.75, 2.5));
@@ -611,7 +612,7 @@ export class GameScene extends Phaser.Scene {
         applyZoom();
       } else if (ev.key === '0') {
         ev.preventDefault();
-        zoomOffset = 0;
+        zoomOffset = defaultZoomOffset;
         applyZoom();
       }
     };
@@ -645,7 +646,11 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     this.pendingBuild = kind;
-    this.ghost = this.add.image(0, 0, `bld-${kind}-player-d`).setAlpha(0.6).setDepth(5000);
+    const def = BUILDING_DEFS[kind];
+    this.ghost = this.add.image(0, 0, `bld-${kind}-player-d`)
+      .setAlpha(0.6)
+      .setDepth(5000)
+      .setDisplaySize(def.size * TILE, def.size * TILE);
   }
 
   private cancelBuildPlacement() {

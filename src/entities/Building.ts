@@ -57,7 +57,7 @@ export class Building extends Entity {
     this.attackCooldown = def.attackCooldown ?? 1500;
     this.sight = def.sight;
     this.redrawBaseDecor();
-    this.redrawBuildingShadow();
+    this.shadow.clear();
     this.facadeGraphic = scene.add.graphics();
     this.addAt(this.facadeGraphic, 4);
     this.sprite.setDisplaySize(def.size * TILE, def.size * TILE);
@@ -65,28 +65,6 @@ export class Building extends Entity {
     this.updateHpBar();
     if (!startBuilt) this.sprite.setAlpha(0.5);
     this.redrawFacadeDetails();
-  }
-
-  private redrawBuildingShadow() {
-    const y = this.kind === 'tower' ? this.radius * 0.7 : this.radius * 0.72;
-    const width = this.kind === 'tower'
-      ? this.radius * 1.45
-      : this.kind === 'farm'
-        ? this.radius * 1.9
-        : this.radius * 2.15;
-    const height = this.kind === 'tower'
-      ? this.radius * 0.42
-      : this.kind === 'farm'
-        ? this.radius * 0.48
-        : this.radius * 0.5;
-
-    this.shadow.clear();
-    this.shadow.fillStyle(0x000000, 0.24);
-    this.shadow.fillEllipse(0, y, width, height);
-    this.shadow.fillStyle(0x000000, 0.12);
-    this.shadow.fillEllipse(0, y - this.radius * 0.08, width * 0.74, height * 0.56);
-    this.shadow.fillStyle(TEAM_COLOR[this.team], 0.045);
-    this.shadow.fillEllipse(0, y - this.radius * 0.04, width * 0.75, height * 0.44);
   }
 
   setRallyPoint(x: number, y: number) {
