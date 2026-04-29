@@ -3,7 +3,6 @@ import { BootScene } from './scenes/BootScene';
 import { GameScene } from './scenes/GameScene';
 import { UIScene } from './scenes/UIScene';
 import { GameOverScene } from './scenes/GameOverScene';
-import { VIEWPORT_H, VIEWPORT_W } from './config';
 import { Logger } from './systems/Logger';
 
 Logger.install();
@@ -13,10 +12,10 @@ new Phaser.Game({
   type: Phaser.AUTO,
   parent: 'game',
   backgroundColor: '#0a0a0a',
-  width: VIEWPORT_W,
-  height: VIEWPORT_H,
+  width: window.innerWidth,
+  height: window.innerHeight,
   scale: {
-    mode: Phaser.Scale.FIT,
+    mode: Phaser.Scale.RESIZE,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
   input: { mouse: { preventDefaultDown: true, preventDefaultUp: true } },

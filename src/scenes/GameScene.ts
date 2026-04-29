@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { BUILDING_DEFS, BuildingKind, MAP_H, MAP_W, Team, TILE, UI_BOTTOM_H, UI_TOP_H, UNIT_DEFS, UnitKind, VIEWPORT_H, VIEWPORT_W, WORLD_H, WORLD_W } from '../config';
+import { BUILDING_DEFS, BuildingKind, MAP_H, MAP_W, Team, TILE, UI_TOP_H, UNIT_DEFS, UnitKind, WORLD_H, WORLD_W, scaledBottomUiHeight, viewportScale } from '../config';
 import { GameMap } from '../world/GameMap';
 import { Pathfinding } from '../world/Pathfinding';
 import { Unit } from '../entities/Unit';
@@ -86,7 +86,8 @@ export class GameScene extends Phaser.Scene {
     // Inset the world camera to the play area so the UI bars don't overlap
     // the map. Pointer coordinates (canvas-wide) are still mapped correctly
     // by camera.getWorldPoint thanks to this viewport.
-    this.cameras.main.setViewport(0, UI_TOP_H, VIEWPORT_W, VIEWPORT_H - UI_TOP_H - UI_BOTTOM_H);
+    this.resizePlayCamera();
+    this.scale.on('resize', this.resizePlayCamera, this);
     this.physics?.world?.setBounds?.(0, 0, WORLD_W, WORLD_H);
 
     this.map = new GameMap(this);
@@ -165,6 +166,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private onShutdown() {
+    this.scale.off('resize', this.resizePlayCamera, this);
     this.events.off('train:completed', this.onTrainCompleted, this);
     this.events.off('ai:train', this.onAiTrain);
     this.events.off('ui:train', this.onUiTrain);
@@ -181,6 +183,13 @@ export class GameScene extends Phaser.Scene {
     this.input.removeAllListeners();
     this.input.keyboard?.removeAllListeners();
     this.cancelBuildPlacement();
+  }
+
+  private resizePlayCamera() {
+    const width = this.scale.width;
+    const height = this.scale.height;
+    const playHeight = Math.max(1, height - UI_TOP_H - scaledBottomUiHeight(width, height));
+    this.cameras.main.setViewport(0, UI_TOP_H, width, playHeight);
   }
 
   private spawnStartingArea(team: Team, baseTx: number, baseTy: number) {
@@ -542,7 +551,16 @@ export class GameScene extends Phaser.Scene {
 
   private setupCamera() {
     const cam = this.cameras.main;
-    cam.setZoom(1);
+    let zoomOffset = 0;
+    const applyZoom = () => {
+      const currentCenter = cam.midPoint.clone();
+      cam.setZoom(Phaser.Math.Clamp(viewportScale(this.scale.width, this.scale.height) + zoomOffset, 0.75, 2.5));
+      cam.centerOn(currentCenter.x, currentCenter.y);
+    };
+    applyZoom();
+    this.scale.on('resize', applyZoom);
+    this.events.once('shutdown', () => this.scale.off('resize', applyZoom));
+    this.events.once('destroy', () => this.scale.off('resize', applyZoom));
 
     let dragging = false;
     let lastX = 0, lastY = 0;
@@ -562,13 +580,16 @@ export class GameScene extends Phaser.Scene {
       if (!(ev.metaKey || ev.ctrlKey)) return;
       if (ev.key === '=' || ev.key === '+') {
         ev.preventDefault();
-        cam.setZoom(Phaser.Math.Clamp(cam.zoom + 0.1, 0.5, 2));
+        zoomOffset = Phaser.Math.Clamp(zoomOffset + 0.1, -0.5, 0.5);
+        applyZoom();
       } else if (ev.key === '-' || ev.key === '_') {
         ev.preventDefault();
-        cam.setZoom(Phaser.Math.Clamp(cam.zoom - 0.1, 0.5, 2));
+        zoomOffset = Phaser.Math.Clamp(zoomOffset - 0.1, -0.5, 0.5);
+        applyZoom();
       } else if (ev.key === '0') {
         ev.preventDefault();
-        cam.setZoom(1);
+        zoomOffset = 0;
+        applyZoom();
       }
     };
     window.addEventListener('keydown', handleZoomKey);

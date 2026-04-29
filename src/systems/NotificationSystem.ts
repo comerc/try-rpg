@@ -1,5 +1,4 @@
 import Phaser from 'phaser';
-import { VIEWPORT_H, VIEWPORT_W } from '../config';
 
 interface Notification {
   text: string;
@@ -16,7 +15,7 @@ export class NotificationSystem {
   private y: number;
 
   constructor(private scene: Phaser.Scene) {
-    this.x = VIEWPORT_W / 2;
+    this.x = scene.scale.width / 2;
     this.y = 60;
     for (let i = 0; i < this.maxVisible; i++) {
       const t = scene.add.text(this.x, this.y + i * 24, '', {

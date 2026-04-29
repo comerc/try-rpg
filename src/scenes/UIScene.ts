@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { BUILDING_DEFS, BuildingKind, Team, TILE, UNIT_DEFS, UnitKind, VIEWPORT_H, VIEWPORT_W, WORLD_H, WORLD_W } from '../config';
+import { BUILDING_DEFS, BuildingKind, Team, TILE, UNIT_DEFS, UnitKind, UI_TOP_H, WORLD_H, WORLD_W, scaledBottomUiHeight, viewportScale } from '../config';
 import { Entity } from '../entities/Entity';
 import { Unit } from '../entities/Unit';
 import { Building } from '../entities/Building';
@@ -43,32 +43,37 @@ export class UIScene extends Phaser.Scene {
   create() {
     const game = this.scene.get('Game') as Phaser.Scene;
     this.gameScene = game;
+    const viewW = this.scale.width;
+    const viewH = this.scale.height;
+    const uiScale = viewportScale(viewW, viewH);
+    const bottomH = scaledBottomUiHeight(viewW, viewH);
+    const bottomTop = viewH - bottomH;
 
     // NB: no setDepth — chrome is added first so it renders under later
     // children (text, buttons, portrait). Previously chrome was at depth 9990
     // which hid every UI control underneath it.
     const chrome = this.add.graphics();
     // Top bar
-    chrome.fillStyle(0x0d1420, 0.92).fillRect(0, 0, VIEWPORT_W, 44);
-    chrome.fillStyle(0x60a5fa, 0.3).fillRect(0, 42, VIEWPORT_W, 2);
+    chrome.fillStyle(0x0d1420, 0.92).fillRect(0, 0, viewW, 44);
+    chrome.fillStyle(0x60a5fa, 0.3).fillRect(0, 42, viewW, 2);
     // Bottom bar (single flat panel)
-    chrome.fillStyle(0x0d1420, 0.94).fillRect(0, VIEWPORT_H - 154, VIEWPORT_W, 154);
-    chrome.fillStyle(0x60a5fa, 0.25).fillRect(0, VIEWPORT_H - 154, VIEWPORT_W, 2);
+    chrome.fillStyle(0x0d1420, 0.94).fillRect(0, bottomTop, viewW, bottomH);
+    chrome.fillStyle(0x60a5fa, 0.25).fillRect(0, bottomTop, viewW, 2);
     // Subtle vertical dividers between portrait / minimap / buttons areas
-    chrome.fillStyle(0xffffff, 0.05).fillRect(VIEWPORT_W / 2 - 118, VIEWPORT_H - 144, 1, 134);
-    chrome.fillStyle(0xffffff, 0.05).fillRect(VIEWPORT_W / 2 + 118, VIEWPORT_H - 144, 1, 134);
+    chrome.fillStyle(0xffffff, 0.05).fillRect(viewW / 2 - 118 * uiScale, bottomTop + 10 * uiScale, 1, bottomH - 20 * uiScale);
+    chrome.fillStyle(0xffffff, 0.05).fillRect(viewW / 2 + 118 * uiScale, bottomTop + 10 * uiScale, 1, bottomH - 20 * uiScale);
 
     this.resourceText = this.add.text(16, 10, '', {
       fontFamily: 'Trebuchet MS, monospace', fontSize: '18px', color: '#ffe066', fontStyle: 'bold',
     });
     this.resourceText.setShadow(0, 2, '#000000', 5, true, true);
 
-    this.gameTimerText = this.add.text(VIEWPORT_W - 16, 10, '0:00', {
+    this.gameTimerText = this.add.text(viewW - 16, 10, '0:00', {
       fontFamily: 'Trebuchet MS, monospace', fontSize: '16px', color: '#cbd5e1',
     }).setOrigin(1, 0);
     this.gameTimerText.setShadow(0, 2, '#000000', 4, true, true);
 
-    this.idleText = this.add.text(VIEWPORT_W - 120, 10, '', {
+    this.idleText = this.add.text(viewW - 120, 10, '', {
       fontFamily: 'Trebuchet MS, monospace', fontSize: '14px', color: '#fbbf24', fontStyle: 'bold',
     }).setOrigin(1, 0).setInteractive({ useHandCursor: true });
     this.idleText.setShadow(0, 2, '#000000', 4, true, true);
@@ -77,20 +82,20 @@ export class UIScene extends Phaser.Scene {
       game.events.emit('ui:cycle-idle');
     });
 
-    this.selectionPortrait = this.add.image(58, VIEWPORT_H - 88, 'pixel').setOrigin(0.5).setVisible(false).setScale(1);
-    this.add.rectangle(58, VIEWPORT_H - 88, 88, 88, 0x000000, 0.22).setStrokeStyle(2, 0x5f7b95);
-    this.add.rectangle(58, VIEWPORT_H - 88, 98, 98, 0xffffff, 0.02).setStrokeStyle(1, 0xffffff, 0.08);
+    this.selectionPortrait = this.add.image(58 * uiScale, bottomTop + 66 * uiScale, 'pixel').setOrigin(0.5).setVisible(false).setScale(1);
+    this.add.rectangle(58 * uiScale, bottomTop + 66 * uiScale, 88 * uiScale, 88 * uiScale, 0x000000, 0.22).setStrokeStyle(2, 0x5f7b95);
+    this.add.rectangle(58 * uiScale, bottomTop + 66 * uiScale, 98 * uiScale, 98 * uiScale, 0xffffff, 0.02).setStrokeStyle(1, 0xffffff, 0.08);
 
-    this.selectionText = this.add.text(116, VIEWPORT_H - 136, '', {
+    this.selectionText = this.add.text(116 * uiScale, bottomTop + 18 * uiScale, '', {
       fontFamily: 'Trebuchet MS, monospace', fontSize: '13px', color: '#e2e8f0',
     });
     this.selectionText.setShadow(0, 2, '#000000', 4, true, true);
 
-    this.helpText = this.add.text(16, VIEWPORT_H - 4, '', {
+    this.helpText = this.add.text(16, viewH - 4, '', {
       fontFamily: 'Trebuchet MS, monospace', fontSize: '10px', color: '#7f95ab',
     }).setOrigin(0, 1).setLineSpacing(2).setText(T.helpText);
 
-    this.modeIndicator = this.add.text(VIEWPORT_W / 2, 54, '', {
+    this.modeIndicator = this.add.text(viewW / 2, 54, '', {
       fontFamily: 'Trebuchet MS, monospace', fontSize: '16px', color: '#ef4444', fontStyle: 'bold',
       stroke: '#000000', strokeThickness: 3,
     }).setOrigin(0.5).setDepth(10002);
@@ -103,13 +108,13 @@ export class UIScene extends Phaser.Scene {
     }).setOrigin(0, 1).setDepth(10006).setVisible(false);
     this.tooltipText.setShadow(0, 2, '#000000', 4, true, true);
 
-    this.buttonsLayer = this.add.container(VIEWPORT_W - 370, VIEWPORT_H - 140);
+    this.buttonsLayer = this.add.container(viewW - 370 * uiScale, bottomTop + 14 * uiScale).setScale(uiScale);
 
     this.trainProgress = this.add.graphics();
 
-    const mmW = 200, mmH = 130;
-    const mmX = VIEWPORT_W / 2 - mmW / 2;
-    const mmY = VIEWPORT_H - mmH - 10;
+    const mmW = 200 * uiScale, mmH = 130 * uiScale;
+    const mmX = viewW / 2 - mmW / 2;
+    const mmY = bottomTop + 12 * uiScale;
     this.minimapBg = this.add.rectangle(mmX, mmY, mmW, mmH, 0x071018, 0.92).setOrigin(0, 0).setStrokeStyle(2, 0x617990).setInteractive({ useHandCursor: true });
     this.add.rectangle(mmX + mmW / 2, mmY + mmH / 2, mmW + 18, mmH + 18, 0xffffff, 0.02).setStrokeStyle(1, 0xffffff, 0.08);
 
@@ -392,13 +397,16 @@ export class UIScene extends Phaser.Scene {
     const gs = this.scene.get('Game') as any;
     if (!gs) return;
     const cam = gs.cameras.main as Phaser.Cameras.Scene2D.Camera;
+    const playTop = UI_TOP_H;
+    const playBottom = this.scale.height - scaledBottomUiHeight(this.scale.width, this.scale.height);
     for (const e of gs.entities as Entity[]) {
       if (!(e instanceof Building)) continue;
       if (e.dead) continue;
       // Construction progress
       if (!e.isBuilt()) {
         const sx = (e.x - cam.worldView.x) * cam.zoom;
-        const sy = (e.y + (e as any).radius + 4 - cam.worldView.y) * cam.zoom;
+        const sy = playTop + (e.y + (e as any).radius + 4 - cam.worldView.y) * cam.zoom;
+        if (sy < playTop || sy + 8 > playBottom) continue;
         const w = 44;
         this.trainProgress.fillStyle(0x000000, 0.7);
         this.trainProgress.fillRect(sx - w / 2, sy, w, 7);
@@ -412,7 +420,8 @@ export class UIScene extends Phaser.Scene {
       const progress = e.currentProgress();
       if (progress <= 0) continue;
       const sx = (e.x - cam.worldView.x) * cam.zoom;
-      const sy = (e.y + (e as any).radius + 4 - cam.worldView.y) * cam.zoom;
+      const sy = playTop + (e.y + (e as any).radius + 4 - cam.worldView.y) * cam.zoom;
+      if (sy < playTop || sy + 8 > playBottom) continue;
       const w = 44;
       this.trainProgress.fillStyle(0x000000, 0.7);
       this.trainProgress.fillRect(sx - w / 2, sy, w, 7);
@@ -490,7 +499,7 @@ export class UIScene extends Phaser.Scene {
       bg.on('pointerover', () => {
         bg.setFillStyle(0x1d3347, 1);
         accent.setFillStyle(0x93c5fd, 1);
-        if (tooltip) this.showTooltip(x + VIEWPORT_W - 370, y + VIEWPORT_H - 140 - 6, tooltip);
+        if (tooltip) this.showTooltip((x * this.buttonsLayer.scaleX) + this.buttonsLayer.x, (y * this.buttonsLayer.scaleY) + this.buttonsLayer.y - 6, tooltip);
       });
       bg.on('pointerout', () => {
         bg.setFillStyle(bgColor, 0.96);
@@ -535,8 +544,8 @@ export class UIScene extends Phaser.Scene {
       return;
     }
     gs.scene.pause();
-    this.pauseOverlay = this.add.rectangle(VIEWPORT_W / 2, VIEWPORT_H / 2, VIEWPORT_W, VIEWPORT_H, 0x000000, 0.5).setDepth(10003);
-    this.pauseLabel = this.add.text(VIEWPORT_W / 2, VIEWPORT_H / 2, `${T.pause}\n${T.pressSpaceToResume}`, {
+    this.pauseOverlay = this.add.rectangle(this.scale.width / 2, this.scale.height / 2, this.scale.width, this.scale.height, 0x000000, 0.5).setDepth(10003);
+    this.pauseLabel = this.add.text(this.scale.width / 2, this.scale.height / 2, `${T.pause}\n${T.pressSpaceToResume}`, {
       fontFamily: 'Trebuchet MS, monospace', fontSize: '32px', color: '#ffffff', align: 'center',
       stroke: '#000000', strokeThickness: 4,
     }).setOrigin(0.5).setDepth(10004);

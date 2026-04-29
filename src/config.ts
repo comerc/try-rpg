@@ -13,6 +13,14 @@ export const VIEWPORT_H = 720;
 export const UI_TOP_H = 44;
 export const UI_BOTTOM_H = 154;
 
+export function viewportScale(width: number, height: number): number {
+  return Math.min(2, Math.max(1, Math.min(width / VIEWPORT_W, height / VIEWPORT_H)));
+}
+
+export function scaledBottomUiHeight(width: number, height: number): number {
+  return Math.round(UI_BOTTOM_H * viewportScale(width, height));
+}
+
 export type Team = 'player' | 'enemy';
 
 export const TEAM_COLOR: Record<Team, number> = {

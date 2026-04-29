@@ -1,5 +1,4 @@
 import Phaser from 'phaser';
-import { VIEWPORT_H, VIEWPORT_W } from '../config';
 import { T } from '../i18n';
 
 interface Data {
@@ -14,10 +13,12 @@ export class GameOverScene extends Phaser.Scene {
 
   create(data: Data) {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.onShutdown, this);
-    this.add.rectangle(0, 0, VIEWPORT_W, VIEWPORT_H, 0x000000, 0.9).setOrigin(0, 0);
+    const viewW = this.scale.width;
+    const viewH = this.scale.height;
+    this.add.rectangle(0, 0, viewW, viewH, 0x000000, 0.9).setOrigin(0, 0);
     const title = data.win ? T.victory : T.defeat;
     const color = data.win ? '#22c55e' : '#ef4444';
-    const glow = this.add.text(VIEWPORT_W / 2, VIEWPORT_H / 2 - 120, title, {
+    const glow = this.add.text(viewW / 2, viewH / 2 - 120, title, {
       fontFamily: 'monospace', fontSize: '72px', color, fontStyle: 'bold',
       stroke: '#000000', strokeThickness: 6,
     }).setOrigin(0.5);
@@ -27,7 +28,7 @@ export class GameOverScene extends Phaser.Scene {
       const totalSec = Math.floor(data.time / 1000);
       const min = Math.floor(totalSec / 60);
       const sec = totalSec % 60;
-      this.add.text(VIEWPORT_W / 2, VIEWPORT_H / 2 - 30, `${T.gameTime}: ${min}:${sec.toString().padStart(2, '0')}`, {
+      this.add.text(viewW / 2, viewH / 2 - 30, `${T.gameTime}: ${min}:${sec.toString().padStart(2, '0')}`, {
         fontFamily: 'monospace', fontSize: '20px', color: '#cbd5e1',
       }).setOrigin(0.5);
     }
@@ -36,13 +37,13 @@ export class GameOverScene extends Phaser.Scene {
     if (data.kills) stats.push(`${T.kills}: ${data.kills.player ?? 0}`);
     if (data.buildingsBuilt) stats.push(`${T.buildingsStat}: ${data.buildingsBuilt.player ?? 0}`);
     if (stats.length > 0) {
-      this.add.text(VIEWPORT_W / 2, VIEWPORT_H / 2 + 5, stats.join('     '), {
+      this.add.text(viewW / 2, viewH / 2 + 5, stats.join('     '), {
         fontFamily: 'monospace', fontSize: '18px', color: '#94a3b8',
       }).setOrigin(0.5);
     }
 
-    const btn = this.add.rectangle(VIEWPORT_W / 2, VIEWPORT_H / 2 + 70, 260, 56, 0x1f2937, 1).setStrokeStyle(2, 0x4b5563).setInteractive({ useHandCursor: true });
-    this.add.text(VIEWPORT_W / 2, VIEWPORT_H / 2 + 70, T.playAgain, {
+    const btn = this.add.rectangle(viewW / 2, viewH / 2 + 70, 260, 56, 0x1f2937, 1).setStrokeStyle(2, 0x4b5563).setInteractive({ useHandCursor: true });
+    this.add.text(viewW / 2, viewH / 2 + 70, T.playAgain, {
       fontFamily: 'monospace', fontSize: '22px', color: '#ffffff',
     }).setOrigin(0.5);
     btn.on('pointerover', () => btn.setFillStyle(0x374151));
