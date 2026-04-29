@@ -10,7 +10,8 @@ export class ResourceNode extends Phaser.GameObjects.Container {
   size: number;
   radius: number;
 
-  protected sprite: Phaser.GameObjects.Image;
+  protected sprite: Phaser.GameObjects.Sprite;
+  private activeChoppers = new Set<object>();
 
   constructor(scene: Phaser.Scene, tx: number, ty: number, kind: ResourceKind) {
     const size = kind === 'goldmine' ? 2 : 1;
@@ -22,8 +23,8 @@ export class ResourceNode extends Phaser.GameObjects.Container {
     this.size = size;
     this.radius = kind === 'goldmine' ? 18 : 12;
 
-    this.sprite = scene.add.image(0, 0, kind === 'goldmine' ? 'res-goldmine-d' : 'res-tree-d');
-    if (kind === 'goldmine') this.sprite.setScale(1.5);
+    this.sprite = scene.add.sprite(0, 0, kind === 'goldmine' ? 'env-mine-f1' : 'env-tree-f1');
+    this.sprite.setDisplaySize(kind === 'goldmine' ? TILE * 1.8 : TILE * 1.25, kind === 'goldmine' ? TILE * 1.6 : TILE * 1.35);
     this.add(this.sprite);
     scene.add.existing(this);
     this.setDepth(this.y);
@@ -36,6 +37,22 @@ export class ResourceNode extends Phaser.GameObjects.Container {
   setSelected(_v: boolean) { /* no selection ring for resources */ }
   isSelected(): boolean { return false; }
 
+  startChopping(actor: object) {
+    if (this.kind !== 'tree' || this.dead) return;
+    this.activeChoppers.add(actor);
+    if (!this.sprite.anims.isPlaying) this.sprite.play('res-tree-d');
+  }
+
+  stopChopping(actor: object) {
+    if (this.kind !== 'tree') return;
+    this.activeChoppers.delete(actor);
+    if (this.activeChoppers.size === 0 && !this.dead) {
+      this.sprite.stop();
+      this.sprite.setTexture('env-tree-f1');
+      this.sprite.setDisplaySize(TILE * 1.25, TILE * 1.35);
+    }
+  }
+
   harvest(amount: number): number {
     const taken = Math.min(amount, this.stock);
     this.stock -= taken;
@@ -46,6 +63,7 @@ export class ResourceNode extends Phaser.GameObjects.Container {
   die() {
     if (this.dead) return;
     this.dead = true;
+    this.activeChoppers.clear();
     const map = (this.scene as any).map;
     const path = (this.scene as any).path;
     if (map) {

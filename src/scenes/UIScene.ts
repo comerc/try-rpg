@@ -363,25 +363,30 @@ export class UIScene extends Phaser.Scene {
     if (this.selected.length === 1) {
       const e = this.selected[0];
       if (e instanceof Unit) {
-        this.selectionPortrait.setTexture(`unit-${e.kind}-${e.team}-d`).setVisible(true).setDisplaySize(70, 70);
+        this.selectionPortrait.setTexture(this.unitPortraitTexture(e)).setVisible(true).setDisplaySize(70, 70);
       } else if (e instanceof Building) {
         this.selectionPortrait.setTexture(`bld-${e.kind}-${e.team}-d`).setVisible(true);
         this.selectionPortrait.setDisplaySize(e.size === 3 ? 86 : 74, e.size === 3 ? 86 : 74);
       } else if (e instanceof ResourceNode) {
-        this.selectionPortrait.setTexture(e.kind === 'goldmine' ? 'res-goldmine-d' : 'res-tree-d').setVisible(true).setScale(2);
+        this.selectionPortrait.setTexture(e.kind === 'goldmine' ? 'env-mine-f1' : 'env-tree-f1').setVisible(true).setDisplaySize(76, 76);
       } else {
         this.selectionPortrait.setVisible(false);
       }
     } else if (this.selected.length > 1) {
       const first = this.selected[0];
       if (first instanceof Unit) {
-        this.selectionPortrait.setTexture(`unit-${first.kind}-${first.team}-d`).setVisible(true).setDisplaySize(70, 70);
+        this.selectionPortrait.setTexture(this.unitPortraitTexture(first)).setVisible(true).setDisplaySize(70, 70);
       } else {
         this.selectionPortrait.setVisible(false);
       }
     } else {
       this.selectionPortrait.setVisible(false);
     }
+  }
+
+  private unitPortraitTexture(unit: Unit): string {
+    if (unit.kind === 'peasant' && unit.team === 'player') return 'unit-peasant-player-f1';
+    return `unit-${unit.kind}-${unit.team}-d`;
   }
 
   private fsmToString(kind: string): string {

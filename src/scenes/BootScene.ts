@@ -19,27 +19,59 @@ export class BootScene extends Phaser.Scene {
     this.load.image('unit-footman-enemy-d', 'assets/generated/footman-enemy.png');
     this.load.image('unit-archer-player-d', 'assets/generated/archer-player.png');
     this.load.image('unit-archer-enemy-d', 'assets/generated/archer-enemy.png');
+
+    for (const name of ['grass', 'dirt', 'water', 'tree', 'mine']) {
+      for (let frame = 1; frame <= 4; frame++) {
+        this.load.image(`env-${name}-f${frame}`, `assets/generated2/sliced/environment/${name}__f${frame}.png`);
+      }
+    }
+    for (const frame of [1, 3, 6, 8, 9, 10, 11]) {
+      this.load.image(`unit-peasant-player-f${frame}`, `assets/generated2/sliced/units/peasant-blue__f${frame}.png`);
+    }
   }
 
   create() {
     this.cameras.main.setBackgroundColor('#08110f');
 
-    this.makeTile('tile-grass', 0x315f35, 0x1e4124, 0x5b9962, 14);
-    this.makeTile('tile-dirt', 0x7e5b35, 0x5a3d1f, 0xb58a5e, 10);
-    this.makeTile('tile-water', 0x1f5d8b, 0x123c62, 0x67b6e9, 14);
     this.makeTile('tile-stone', 0x59626a, 0x353c44, 0x9ba6af, 9);
-    this.makeTile('tile-grass-rich', 0x28592f, 0x17371d, 0x70b46d, 16);
 
     this.makeRect('res-tree', 28, 28, 0x2f5f28, 0x183115);
     this.makeRect('res-goldmine', 30, 30, 0xe6b800, 0x8a6a00);
 
     this.makeRect('pixel', 1, 1, 0xffffff, 0xffffff);
-
-    this.makeDetailedTree('res-tree-d', 0x265c28, 0x5a3a1a);
-    this.makeDetailedGoldmine('res-goldmine-d', 0xf5c93b, 0x665246);
+    this.createEnvironmentAnimations();
+    this.createPeasantAnimations();
 
     this.scene.start('Game');
     this.scene.launch('UI');
+  }
+
+  private createEnvironmentAnimations() {
+    this.createLoopingAnimation('res-tree-d', 'tree', 3);
+  }
+
+  private createLoopingAnimation(key: string, assetName: string, frameRate: number) {
+    this.anims.create({
+      key,
+      frames: [1, 2, 3, 4].map((frame) => ({ key: `env-${assetName}-f${frame}` })),
+      frameRate,
+      repeat: -1,
+    });
+  }
+
+  private createPeasantAnimations() {
+    this.anims.create({
+      key: 'unit-peasant-player-walk',
+      frames: [3, 6, 8, 6].map((frame) => ({ key: `unit-peasant-player-f${frame}` })),
+      frameRate: 7,
+      repeat: -1,
+    });
+    this.anims.create({
+      key: 'unit-peasant-player-interact',
+      frames: [9, 10].map((frame) => ({ key: `unit-peasant-player-f${frame}` })),
+      frameRate: 4,
+      repeat: -1,
+    });
   }
 
   private makeTile(key: string, fill: number, stroke: number, highlight: number, detailCount: number) {

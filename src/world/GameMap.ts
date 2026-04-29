@@ -3,12 +3,12 @@ import { MAP_H, MAP_W, TILE, WORLD_H, WORLD_W } from '../config';
 
 export type TileType = 'grass' | 'dirt' | 'water' | 'stone' | 'grass-rich';
 
-const TEX: Record<TileType, string> = {
-  grass: 'tile-grass',
-  'grass-rich': 'tile-grass-rich',
-  dirt: 'tile-dirt',
-  water: 'tile-water',
-  stone: 'tile-stone',
+const TILE_FRAMES: Record<TileType, string[]> = {
+  grass: ['env-grass-f1', 'env-grass-f2', 'env-grass-f3', 'env-grass-f4'],
+  'grass-rich': ['env-grass-f1', 'env-grass-f2', 'env-grass-f3', 'env-grass-f4'],
+  dirt: ['env-dirt-f1', 'env-dirt-f2', 'env-dirt-f3', 'env-dirt-f4'],
+  water: ['env-water-f1', 'env-water-f2', 'env-water-f3', 'env-water-f4'],
+  stone: ['env-dirt-f1', 'env-dirt-f2', 'env-dirt-f3', 'env-dirt-f4'],
 };
 
 export class GameMap {
@@ -57,17 +57,34 @@ export class GameMap {
     this.renderBackdrop();
 
     const rng = new Phaser.Math.RandomDataGenerator([`terrain-${this.biomeSeed}-${this.w}x${this.h}`]);
+    const terrainFrontBuffer = this.scene.add.renderTexture(0, 0, WORLD_W, WORLD_H)
+      .setOrigin(0, 0)
+      .setDepth(-100)
+      .setVisible(false);
+    const terrainBackBuffer = this.scene.add.renderTexture(0, 0, WORLD_W, WORLD_H)
+      .setOrigin(0, 0)
+      .setDepth(-100)
+      .setVisible(false);
+    const stamp = this.scene.add.sprite(0, 0, 'env-grass-f1');
+
     for (let y = 0; y < this.h; y++) {
       for (let x = 0; x < this.w; x++) {
-        const img = this.scene.add.image(x * TILE + TILE / 2, y * TILE + TILE / 2, TEX[this.tiles[y][x]])
-          .setDepth(-100);
-        img.setAlpha(0.95 + rng.frac() * 0.08);
-        img.setScale(1.01 + rng.frac() * 0.04);
-        img.setFlipX(rng.frac() > 0.5);
-        img.setFlipY(rng.frac() > 0.78);
-        img.setTint(this.getTileTint(x, y, this.tiles[y][x]));
+        const tile = this.tiles[y][x];
+        const frames = TILE_FRAMES[tile];
+        const scale = 1.01 + rng.frac() * 0.04;
+        stamp
+          .setTexture(frames[Math.floor(rng.frac() * frames.length)])
+          .setPosition(x * TILE + TILE / 2, y * TILE + TILE / 2)
+          .setAlpha(0.95 + rng.frac() * 0.08)
+          .setDisplaySize(TILE * scale, TILE * scale)
+          .setFlipX(rng.frac() > 0.5)
+          .setFlipY(rng.frac() > 0.78)
+          .setTint(this.getTileTint(x, y, tile));
+        terrainBackBuffer.draw(stamp);
       }
     }
+    stamp.destroy();
+    terrainBackBuffer.setVisible(true);
 
     this.renderTerrainDetails();
   }
@@ -147,9 +164,9 @@ export class GameMap {
             micro.fillRect(wx - 8 + rng.frac() * 14, wy - 7 + rng.frac() * 12, 1.6, 1.2);
           }
         } else if (t === 'stone') {
-          micro.fillStyle(0xe2e8f0, 0.06 + rng.frac() * 0.05);
+          micro.fillStyle(0xd6b07a, 0.07 + rng.frac() * 0.04);
           micro.fillRect(wx - 9 + rng.frac() * 15, wy - 7 + rng.frac() * 12, 1.5 + rng.frac(), 1.2 + rng.frac());
-          micro.fillStyle(0x334155, 0.08);
+          micro.fillStyle(0x4b321a, 0.07);
           micro.fillRect(wx - 7 + rng.frac() * 13, wy - 5 + rng.frac() * 10, 1.2, 1);
         }
       }
@@ -192,7 +209,7 @@ export class GameMap {
       return nx + ny > 1.2 ? 0x4dabd6 : 0x74c0fc;
     }
     if (tile === 'stone') {
-      return Math.hypot(nx - 0.2, ny - 0.72) < 0.18 ? 0xcbd5e1 : 0xb0bac5;
+      return Math.hypot(nx - 0.2, ny - 0.72) < 0.18 ? 0xb98a5a : 0xa9784a;
     }
     if (tile === 'dirt') {
       return Math.hypot(nx - 0.73, ny - 0.76) < 0.24 ? 0xd6a66b : 0xc18a56;

@@ -7,7 +7,7 @@ export abstract class Entity extends Phaser.GameObjects.Container {
   team: Team;
   dead = false;
 
-  protected sprite!: Phaser.GameObjects.Image;
+  protected sprite!: Phaser.GameObjects.Sprite;
   protected teamRing!: Phaser.GameObjects.Graphics;
   protected selectionRing!: Phaser.GameObjects.Graphics;
   protected hpBg!: Phaser.GameObjects.Rectangle;
@@ -44,7 +44,7 @@ export abstract class Entity extends Phaser.GameObjects.Container {
     this.selectionRing.setVisible(false);
     this.add(this.selectionRing);
 
-    this.sprite = scene.add.image(0, 0, texture);
+    this.sprite = scene.add.sprite(0, 0, texture);
     this.add(this.sprite);
 
     this.flashGraphics = scene.add.graphics();

@@ -44,6 +44,8 @@ export class Unit extends Entity {
   private attackAnimTimer = 0;
   private visualScale = 1;
   private idleFxTimer = 0;
+  private choppingResource: ResourceNode | null = null;
+  private usesPeasantAtlas = false;
 
   constructor(scene: Phaser.Scene, x: number, y: number, team: Team, kind: UnitKind) {
     const def = UNIT_DEFS[kind];
@@ -57,12 +59,18 @@ export class Unit extends Entity {
     this.sight = def.sight;
     this.radius = kind === 'footman' ? 12 : kind === 'archer' ? 11 : 10;
     this.visualScale = kind === 'footman' ? 0.7 : 0.66;
+    this.usesPeasantAtlas = kind === 'peasant' && team === 'player';
+    if (this.usesPeasantAtlas) {
+      this.sprite.setTexture('unit-peasant-player-f1');
+      this.visualScale = 0.25;
+    }
     this.redrawBaseDecor();
     this.applyFacingScale();
     this.lastX = x;
   }
 
   setPath(path: PathPoint[], final = true) {
+    this.setChoppingResource(null);
     if (path.length === 0) {
       this.fsm = { kind: 'idle' };
       return;
@@ -71,12 +79,14 @@ export class Unit extends Entity {
   }
 
   stop() {
+    this.setChoppingResource(null);
     this.fsm = { kind: 'idle' };
     this.setCarrying(null);
     (this as any)._attackChaseTarget = null;
   }
 
   hold() {
+    this.setChoppingResource(null);
     this.fsm = { kind: 'hold' };
     this.setCarrying(null);
     (this as any)._attackChaseTarget = null;
@@ -119,8 +129,15 @@ export class Unit extends Entity {
     this.updateSelectionPulse(delta);
     this.updateFlash(delta);
     this.updateIdleAmbientFx(delta);
+    this.updatePeasantAnimation();
     this.refreshDepth();
     this.updateDustTrail(delta);
+    if (this.fsm.kind !== 'gathering') this.setChoppingResource(null);
+  }
+
+  die() {
+    this.setChoppingResource(null);
+    super.die();
   }
 
   private isMovingState(): boolean {
@@ -164,6 +181,54 @@ export class Unit extends Entity {
 
   private applyFacingScale() {
     this.sprite.setScale(this.facing * this.visualScale, this.visualScale);
+  }
+
+  protected refreshDepth() {
+    if (this.fsm.kind === 'gathering' && this.fsm.resource.kind === 'tree') {
+      this.setDepth(this.fsm.resource.y + 1);
+      return;
+    }
+    super.refreshDepth();
+  }
+
+  private updatePeasantAnimation() {
+    if (!this.usesPeasantAtlas) return;
+    if (this.isPeasantInteracting()) {
+      this.playPeasantAnimation('unit-peasant-player-interact');
+      return;
+    }
+    if (this.isMovingState()) {
+      this.playPeasantAnimation('unit-peasant-player-walk');
+      return;
+    }
+    this.stopPeasantAnimation('unit-peasant-player-f1');
+  }
+
+  private isPeasantInteracting(): boolean {
+    if (this.fsm.kind === 'gathering') {
+      return Math.hypot(this.fsm.resource.x - this.x, this.fsm.resource.y - this.y) - this.fsm.resource.radius <= 4;
+    }
+    if (this.fsm.kind === 'building') {
+      const spot = this.buildStandSpot(this.fsm.target);
+      return Math.hypot(spot.x - this.x, spot.y - this.y) <= 4;
+    }
+    if (this.fsm.kind === 'repair') {
+      return this.distanceToBuildingRect(this.fsm.target) <= 4;
+    }
+    return false;
+  }
+
+  private playPeasantAnimation(key: string) {
+    if (this.sprite.anims.currentAnim?.key !== key || !this.sprite.anims.isPlaying) {
+      this.sprite.play(key);
+      this.applyFacingScale();
+    }
+  }
+
+  private stopPeasantAnimation(textureKey: string) {
+    if (this.sprite.anims.isPlaying) this.sprite.stop();
+    if (this.sprite.texture.key !== textureKey) this.sprite.setTexture(textureKey);
+    this.applyFacingScale();
   }
 
   private updateIdleAmbientFx(delta: number) {
@@ -291,6 +356,7 @@ export class Unit extends Entity {
     if (this.fsm.kind !== 'gathering') return;
     const s = this.fsm;
     if (!s.resource || s.resource.dead) {
+      this.setChoppingResource(null);
       this.fsm = { kind: 'idle' };
       this.setCarrying(null);
       return;
@@ -299,11 +365,13 @@ export class Unit extends Entity {
     const dy = s.resource.y - this.y;
     const dist = Math.hypot(dx, dy) - s.resource.radius;
     if (dist > 4) {
+      this.setChoppingResource(null);
       const step = (this.speed * delta) / 1000;
       const len = Math.hypot(dx, dy);
       this.x += (dx / len) * step;
       this.y += (dy / len) * step;
     } else {
+      this.setChoppingResource(s.resource.kind === 'tree' ? s.resource : null);
       s.gatherTicker += delta;
       this.gatherParticleTimer += delta;
       const vfx = (this.scene as any).vfx;
@@ -325,6 +393,13 @@ export class Unit extends Entity {
         }
       }
     }
+  }
+
+  private setChoppingResource(resource: ResourceNode | null) {
+    if (this.choppingResource === resource) return;
+    this.choppingResource?.stopChopping(this);
+    this.choppingResource = resource;
+    this.choppingResource?.startChopping(this);
   }
 
   private tickReturning(delta: number) {
