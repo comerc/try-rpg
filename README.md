@@ -2,4 +2,4 @@
 
 > эксперимент: игра на Claude Opus за 3 промпта
 
-![play](./assets/play.png) ![win](./assets/win.png)
+![Play](./assets/play.png) ![Win](./assets/win.png)
