@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { TEAM_COLOR, Team, TILE, UNIT_DEFS, UnitKind } from '../config';
+import { Team, TILE, UNIT_DEFS, UnitKind } from '../config';
 import { Entity } from './Entity';
 import { T } from '../i18n';
 import type { PathPoint } from '../world/Pathfinding';
@@ -42,8 +42,6 @@ export class Unit extends Entity {
   private lastX: number;
   private dustTimer = 0;
   private attackAnimTimer = 0;
-  private accentGraphic: Phaser.GameObjects.Graphics;
-  private accentSeed = Math.random() * Math.PI * 2;
   private visualScale = 1;
   private idleFxTimer = 0;
 
@@ -58,12 +56,9 @@ export class Unit extends Entity {
     this.attackCooldown = def.attackCooldown;
     this.sight = def.sight;
     this.radius = kind === 'footman' ? 12 : kind === 'archer' ? 11 : 10;
-    this.visualScale = kind === 'footman' ? 1.02 : 1;
+    this.visualScale = kind === 'footman' ? 0.7 : 0.66;
     this.redrawBaseDecor();
-    this.accentGraphic = scene.add.graphics();
-    this.addAt(this.accentGraphic, 4);
     this.applyFacingScale();
-    this.redrawTeamAccent(0);
     this.lastX = x;
   }
 
@@ -123,7 +118,6 @@ export class Unit extends Entity {
     this.updateBobbing(delta);
     this.updateSelectionPulse(delta);
     this.updateFlash(delta);
-    this.redrawTeamAccent(time);
     this.updateIdleAmbientFx(delta);
     this.refreshDepth();
     this.updateDustTrail(delta);
@@ -165,68 +159,11 @@ export class Unit extends Entity {
         this.applyFacingScale();
       }
     }
-    this.accentGraphic.setPosition(this.sprite.x, this.sprite.y);
     this.lastX = this.x;
   }
 
   private applyFacingScale() {
     this.sprite.setScale(this.facing * this.visualScale, this.visualScale);
-    this.accentGraphic.setScale(this.facing * this.visualScale, this.visualScale);
-  }
-
-  private redrawTeamAccent(time: number) {
-    const g = this.accentGraphic;
-    const teamColor = TEAM_COLOR[this.team];
-    const teamLight = Phaser.Display.Color.IntegerToColor(teamColor).lighten(20).color;
-    const teamDark = Phaser.Display.Color.IntegerToColor(teamColor).darken(28).color;
-    const pulse = 0.55 + Math.sin(time / 210 + this.accentSeed) * 0.12;
-    const clothWave = Math.sin(time / 170 + this.accentSeed) * 0.9;
-    const clothWave2 = Math.cos(time / 210 + this.accentSeed * 1.4) * 0.7;
-    const shimmer = (Math.sin(time / 290 + this.accentSeed * 0.8) + 1) * 0.5;
-    const glintAlpha = 0.16 + shimmer * 0.34;
-    const r = this.radius;
-
-    g.clear();
-    g.setPosition(this.sprite.x, this.sprite.y);
-
-    if (this.kind === 'peasant') {
-      g.fillStyle(teamColor, 0.92).fillRect(-1.8, r * 0.12, 3.6, 1.2);
-      g.fillStyle(teamLight, 0.75).fillRect(-1.1, r * 0.12, 0.8, 1.2);
-      g.fillStyle(teamColor, 0.8).fillEllipse(-0.6, -r * 1.04, 2.3, 0.95);
-      g.fillStyle(teamDark, 0.6).fillRect(r * 0.95, -r * 0.06, 0.9, 4.4);
-      g.fillStyle(teamLight, pulse).fillCircle(r * 1.4, -r * 0.04, 0.45);
-      g.fillStyle(teamColor, 0.88).fillTriangle(r * 1.8, r * 0.2, r * 2.65 + clothWave, r * 0.46, r * 1.84, r * 0.64 + clothWave2);
-      g.fillStyle(teamLight, 0.58).fillTriangle(r * 1.8, r * 0.24, r * 2.28 + clothWave * 0.55, r * 0.42, r * 1.84, r * 0.52 + clothWave2 * 0.4);
-      g.fillStyle(0xffffff, glintAlpha).fillCircle(r * 1.1 + shimmer * 0.45, -r * 0.18, 0.38);
-    } else if (this.kind === 'footman') {
-      g.fillStyle(teamDark, 0.78).fillTriangle(-r * 0.22, -r * 0.3, -r * 1.02, r * 0.56, -r * 0.08, r * 0.82);
-      g.fillStyle(teamColor, 0.92).fillTriangle(-r * 0.1, -r * 0.38, -r * 0.82, r * 0.48, -r * 0.02, r * 0.7);
-      g.fillStyle(teamLight, 0.7).fillTriangle(-r * 0.14, -r * 0.3, -r * 0.52, r * 0.26, -r * 0.08, r * 0.5);
-      g.fillStyle(teamColor, 0.88).fillRect(-0.9, -r * 1.44, 1.8, 4.8);
-      g.fillStyle(teamLight, pulse).fillRect(-0.45, -r * 1.44, 0.5, 4.8);
-      g.fillStyle(teamColor, 0.96).fillCircle(-r * 1.22, r * 0.02, 1.25);
-      g.fillStyle(teamLight, pulse).fillCircle(-r * 1.3, -0.18, 0.45);
-      g.fillStyle(teamDark, 0.85).fillRect(-r * 1.42, -0.18, 0.35, 0.55);
-      g.fillStyle(teamDark, 0.85).fillRect(-r * 1.48, 0.35, 0.5, 0.34);
-      g.fillStyle(teamColor, 0.84).fillTriangle(0.05, -r * 1.38, 0.08, -r * 0.44, 1.25 + clothWave * 0.7, -r * 1.04 + clothWave2);
-      g.fillStyle(teamLight, 0.58).fillTriangle(0.02, -r * 1.34, 0.04, -r * 0.62, 0.78 + clothWave * 0.45, -r * 1 + clothWave2 * 0.7);
-      g.fillStyle(0xffffff, glintAlpha).fillEllipse(-r * 1.03 + shimmer * 0.25, -0.12, 0.5, 1.25);
-      g.fillStyle(0xffffff, glintAlpha * 0.72).fillRect(-0.12, -r * 1.24 + shimmer * 1.2, 0.34, 1.45);
-    } else if (this.kind === 'archer') {
-      g.fillStyle(teamColor, 0.85).fillEllipse(0, -r * 0.86, r * 1.35, 0.8);
-      g.fillStyle(teamLight, pulse).fillEllipse(-r * 0.18, -r * 0.9, r * 0.52, 0.4);
-      g.fillStyle(teamColor, 0.92).fillRect(-0.9, r * 0.14, 1.8, 4.6);
-      g.fillStyle(teamLight, 0.7).fillRect(-0.45, r * 0.14, 0.5, 4.6);
-      g.fillStyle(teamDark, 0.72).fillRect(r * 0.72, -r * 1.04, 0.75, 4.5);
-      g.fillStyle(teamColor, 0.92).fillCircle(r * 1.15, -r * 1.02, 0.72);
-      g.fillStyle(teamColor, 0.92).fillCircle(r * 1.15, -r * 0.7, 0.72);
-      g.fillStyle(teamColor, 0.92).fillCircle(r * 1.15, -r * 0.38, 0.72);
-      g.fillStyle(teamLight, pulse).fillCircle(r * 1.04, -r * 0.98, 0.22);
-      g.fillStyle(teamColor, 0.84).fillTriangle(0.18, r * 0.24, 0.12, r * 0.94, 1.85 + clothWave, r * 0.7 + clothWave2);
-      g.fillStyle(teamLight, 0.6).fillTriangle(0.15, r * 0.28, 0.1, r * 0.78, 1.18 + clothWave * 0.65, r * 0.62 + clothWave2 * 0.55);
-      g.fillStyle(0xffffff, glintAlpha * 0.9).fillCircle(r * 1.26, -r * 0.76 + shimmer * 0.2, 0.18);
-      g.fillStyle(0xffffff, glintAlpha).fillRect(-0.08, r * 0.26 + shimmer * 0.8, 0.3, 1.3);
-    }
   }
 
   private updateIdleAmbientFx(delta: number) {
@@ -339,7 +276,7 @@ export class Unit extends Entity {
         if (snd) snd.play('melee');
       }
       this.scene.tweens.add({
-        targets: [this.sprite, this.accentGraphic],
+        targets: this.sprite,
         scaleX: this.facing * this.visualScale * 1.25,
         scaleY: this.visualScale * 1.2,
         yoyo: true,

@@ -37,6 +37,7 @@ export abstract class Entity extends Phaser.GameObjects.Container {
     this.add(this.shadow);
 
     this.teamRing = scene.add.graphics();
+    this.teamRing.setVisible(false);
     this.add(this.teamRing);
 
     this.selectionRing = scene.add.graphics();
@@ -81,6 +82,7 @@ export abstract class Entity extends Phaser.GameObjects.Container {
     this.teamRing.strokeCircle(0, 0, ringRadius - 2);
     this.teamRing.lineStyle(0.8, 0x000000, 0.18);
     this.teamRing.strokeCircle(0, 0, ringRadius + 3.2);
+    this.teamRing.setVisible(this.selected);
 
     this.flashGraphics.clear();
     this.flashGraphics.fillStyle(0xffffff, 1);
@@ -96,8 +98,13 @@ export abstract class Entity extends Phaser.GameObjects.Container {
 
   setSelected(v: boolean) {
     this.selected = v;
+    this.teamRing.setVisible(v);
     this.selectionRing.setVisible(v);
-    if (!v) this.selectionPulse = 0;
+    this.updateHpBar();
+    if (!v) {
+      this.selectionPulse = 0;
+      this.selectionRing.clear();
+    }
   }
 
   isSelected() { return this.selected; }

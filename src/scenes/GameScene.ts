@@ -470,9 +470,12 @@ export class GameScene extends Phaser.Scene {
   private handleRightClick(pointer: Phaser.Input.Pointer, ui: any) {
     const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
     const units = this.playerSelectedUnits();
-    if (units.length === 0) return;
+    const rallyBuildings = this.selection.selected.filter((e): e is Building =>
+      e instanceof Building && e.team === 'player' && e.isBuilt() && (BUILDING_DEFS[e.kind].trains?.length ?? 0) > 0
+    );
+    if (units.length === 0 && rallyBuildings.length === 0) return;
 
-    if (ui?.isAttackMoveMode?.()) {
+    if (units.length > 0 && ui?.isAttackMoveMode?.()) {
       ui.clearAttackMoveMode();
       this.command.attackMove(units, world.x, world.y);
       this.vfx.spawnSparks(world.x, world.y, 0xff4444, 8);
@@ -481,7 +484,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    if (ui?.isPatrolMode?.()) {
+    if (units.length > 0 && ui?.isPatrolMode?.()) {
       const pointA = ui.getPatrolPointA?.();
       if (!pointA) {
         ui.setPatrolPointA({ x: world.x, y: world.y });
@@ -491,6 +494,16 @@ export class GameScene extends Phaser.Scene {
       this.command.patrol(units, pointA, { x: world.x, y: world.y });
       this.notifications.add(T.patrolSetNotif, '#22c55e');
       this.sound2.play('order');
+      return;
+    }
+
+    if (units.length === 0 && rallyBuildings.length > 0) {
+      for (const b of rallyBuildings) {
+        const rp = this.rallyPointOutsideBuilding(b, world.x, world.y);
+        b.setRallyPoint(rp.x, rp.y);
+      }
+      this.notifications.add(T.rallyPointSet, '#22c55e');
+      this.sound2.play('click');
       return;
     }
 
@@ -532,9 +545,8 @@ export class GameScene extends Phaser.Scene {
           this.sound2.play('order');
           return;
         }
-        target.setRallyPoint(world.x, world.y);
-        this.notifications.add(T.rallyPointSet, '#22c55e');
-        this.sound2.play('click');
+        this.command.moveTo(units, world.x, world.y);
+        this.sound2.play('order');
         return;
       }
       if ((target as any).team !== undefined && (target as any).team !== 'player') {
@@ -547,6 +559,17 @@ export class GameScene extends Phaser.Scene {
     this.command.moveTo(units, world.x, world.y);
     this.vfx.spawnSparks(world.x, world.y, 0x3b82f6, 4);
     this.sound2.play('order');
+  }
+
+  private rallyPointOutsideBuilding(b: Building, x: number, y: number): { x: number; y: number } {
+    const dx = x - b.x;
+    const dy = y - b.y;
+    const d = Math.hypot(dx, dy);
+    const minD = b.radius + 12;
+    if (d >= minD) return { x, y };
+    const nx = d > 0.001 ? dx / d : 0;
+    const ny = d > 0.001 ? dy / d : 1;
+    return { x: b.x + nx * minD, y: b.y + ny * minD };
   }
 
   private setupCamera() {

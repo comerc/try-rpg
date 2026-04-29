@@ -363,9 +363,10 @@ export class UIScene extends Phaser.Scene {
     if (this.selected.length === 1) {
       const e = this.selected[0];
       if (e instanceof Unit) {
-        this.selectionPortrait.setTexture(`unit-${e.kind}-${e.team}-d`).setVisible(true).setScale(2.2);
+        this.selectionPortrait.setTexture(`unit-${e.kind}-${e.team}-d`).setVisible(true).setDisplaySize(70, 70);
       } else if (e instanceof Building) {
-        this.selectionPortrait.setTexture(`bld-${e.kind}-${e.team}-d`).setVisible(true).setScale(e.size === 3 ? 0.8 : 1.2);
+        this.selectionPortrait.setTexture(`bld-${e.kind}-${e.team}-d`).setVisible(true);
+        this.selectionPortrait.setDisplaySize(e.size === 3 ? 86 : 74, e.size === 3 ? 86 : 74);
       } else if (e instanceof ResourceNode) {
         this.selectionPortrait.setTexture(e.kind === 'goldmine' ? 'res-goldmine-d' : 'res-tree-d').setVisible(true).setScale(2);
       } else {
@@ -374,7 +375,7 @@ export class UIScene extends Phaser.Scene {
     } else if (this.selected.length > 1) {
       const first = this.selected[0];
       if (first instanceof Unit) {
-        this.selectionPortrait.setTexture(`unit-${first.kind}-${first.team}-d`).setVisible(true).setScale(2.2);
+        this.selectionPortrait.setTexture(`unit-${first.kind}-${first.team}-d`).setVisible(true).setDisplaySize(70, 70);
       } else {
         this.selectionPortrait.setVisible(false);
       }
