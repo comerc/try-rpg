@@ -12,6 +12,8 @@ export class ResourceNode extends Phaser.GameObjects.Container {
 
   protected sprite: Phaser.GameObjects.Image;
   private animOffset = Math.random() * 1000;
+  private resourceSelected = false;
+  private resourceSelectionRing: Phaser.GameObjects.Graphics;
 
   constructor(scene: Phaser.Scene, tx: number, ty: number, kind: ResourceKind) {
     const size = kind === 'goldmine' ? 2 : 1;
@@ -27,6 +29,9 @@ export class ResourceNode extends Phaser.GameObjects.Container {
     if (kind === 'goldmine') this.sprite.setDisplaySize(TILE * 1.9, TILE * 1.9);
     else this.sprite.setDisplaySize(TILE * 1.25, TILE * 1.25);
     this.add(this.sprite);
+    this.resourceSelectionRing = scene.add.graphics();
+    this.resourceSelectionRing.setVisible(false);
+    this.add(this.resourceSelectionRing);
     scene.add.existing(this);
     this.setDepth(this.y);
   }
@@ -45,8 +50,28 @@ export class ResourceNode extends Phaser.GameObjects.Container {
   // GameScene.entities alongside Unit/Building (force-cast to Entity) so it
   // can be picked by clicks, but it doesn't extend Entity. These no-ops keep
   // SelectionSystem.setSelection/clear from crashing on 'e.setSelected'.
-  setSelected(_v: boolean) { /* no selection ring for resources */ }
-  isSelected(): boolean { return false; }
+  setSelected(v: boolean) {
+    this.resourceSelected = v;
+    this.resourceSelectionRing.setVisible(v);
+    this.redrawSelectionRing();
+  }
+  isSelected(): boolean { return this.resourceSelected; }
+
+  private redrawSelectionRing() {
+    this.resourceSelectionRing.clear();
+    if (!this.resourceSelected) return;
+    const halfSize = this.radius + 7;
+    const corner = Math.max(8, halfSize * 0.32);
+    this.resourceSelectionRing.lineStyle(2, 0xffffff, 0.48);
+    this.resourceSelectionRing.lineBetween(-halfSize, -halfSize, -halfSize + corner, -halfSize);
+    this.resourceSelectionRing.lineBetween(-halfSize, -halfSize, -halfSize, -halfSize + corner);
+    this.resourceSelectionRing.lineBetween(halfSize, -halfSize, halfSize - corner, -halfSize);
+    this.resourceSelectionRing.lineBetween(halfSize, -halfSize, halfSize, -halfSize + corner);
+    this.resourceSelectionRing.lineBetween(-halfSize, halfSize, -halfSize + corner, halfSize);
+    this.resourceSelectionRing.lineBetween(-halfSize, halfSize, -halfSize, halfSize - corner);
+    this.resourceSelectionRing.lineBetween(halfSize, halfSize, halfSize - corner, halfSize);
+    this.resourceSelectionRing.lineBetween(halfSize, halfSize, halfSize, halfSize - corner);
+  }
 
   harvest(amount: number): number {
     const taken = Math.min(amount, this.stock);

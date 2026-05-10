@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { BUILDING_DEFS, BuildingKind, MAP_H, MAP_W, Team, TILE, UI_BOTTOM_H, UI_TOP_H, UNIT_DEFS, UnitKind, VIEWPORT_H, VIEWPORT_W, WORLD_H, WORLD_W } from '../config';
+import { BUILDING_DEFS, BuildingKind, MAP_H, MAP_W, Team, TILE, UI_BOTTOM_H, UI_TOP_H, UNIT_DEFS, UnitKind, VIEWPORT_H, VIEWPORT_W, WORLD_H, WORLD_RENDER_PADDING, WORLD_W, unitTrainingRequirement } from '../config';
 import { GameMap } from '../world/GameMap';
 import { Pathfinding } from '../world/Pathfinding';
 import { Unit } from '../entities/Unit';
@@ -18,6 +18,7 @@ import { ControlGroups } from '../systems/ControlGroups';
 import { FogOfWar } from '../systems/FogOfWar';
 import { T, buildingName } from '../i18n';
 import { Logger } from '../systems/Logger';
+import { buildingImageFit } from '../assets/VisualMetrics';
 
 const CAMERA_MIN_ZOOM = 0.5;
 const CAMERA_MAX_ZOOM = 2;
@@ -59,6 +60,7 @@ export class GameScene extends Phaser.Scene {
 
   pendingBuild: BuildingKind | null = null;
   ghost: Phaser.GameObjects.Image | null = null;
+  private ghostOffsetY = 0;
 
   private gameTime = 0;
   kills: Record<Team, number> = { player: 0, enemy: 0 };
@@ -74,10 +76,16 @@ export class GameScene extends Phaser.Scene {
   private longPressFiredPointerId: number | null = null;
 
   private readonly onAiTrain = (bld: Building, kind: UnitKind) => this.requestTrain(bld, kind);
+  private readonly onAiUpgrade = (bld: Building) => this.requestUpgrade(bld);
   private readonly onUiTrain = (bld: Building, kind: UnitKind) => {
     const queued = this.requestTrain(bld, kind);
     this.sound2.play('click');
-    if (queued) this.sound2.voice('ready');
+    if (queued) this.sound2.voice('ready', kind);
+  };
+  private readonly onUiUpgrade = (bld: Building) => {
+    const started = this.requestUpgrade(bld);
+    this.sound2.play(started ? 'click' : 'cancel');
+    if (started) this.sound2.voice('build', 'peasant');
   };
   private readonly onUiBuildStart = (kind: BuildingKind) => {
     this.beginBuildPlacement(kind);
@@ -85,16 +93,16 @@ export class GameScene extends Phaser.Scene {
   private readonly onUiStop = () => {
     this.command.stop(this.playerSelectedUnits());
     this.sound2.play('order');
-    this.sound2.voice('cancel');
+    this.sound2.voice('cancel', this.selectedVoiceGroup());
   };
   private readonly onUiHold = () => {
     this.command.hold(this.playerSelectedUnits());
     this.sound2.play('order');
-    this.sound2.voice('order');
+    this.sound2.voice('order', this.selectedVoiceGroup());
   };
   private readonly onUiRepair = () => {
     this.beginRepairMode();
-    this.sound2.voice('work');
+    this.sound2.voice('work', 'peasant');
   };
   private readonly onUiCycleIdle = () => this.groups.cycleIdleWorker();
 
@@ -118,15 +126,26 @@ export class GameScene extends Phaser.Scene {
     this.pendingBuild = null;
     this.ghost?.destroy();
     this.ghost = null;
+    this.ghostOffsetY = 0;
 
-    this.cameras.main.setBounds(0, 0, WORLD_W, WORLD_H);
+    this.cameras.main.setBounds(
+      -WORLD_RENDER_PADDING,
+      -WORLD_RENDER_PADDING,
+      WORLD_W + WORLD_RENDER_PADDING * 2,
+      WORLD_H + WORLD_RENDER_PADDING * 2,
+    );
     this.cameras.main.setBackgroundColor('#08110f');
     this.cameras.main.roundPixels = true;
     // Inset the world camera to the play area so the UI bars don't overlap
     // the map. Pointer coordinates (canvas-wide) are still mapped correctly
     // by camera.getWorldPoint thanks to this viewport.
     this.cameras.main.setViewport(0, UI_TOP_H, VIEWPORT_W, VIEWPORT_H - UI_TOP_H - UI_BOTTOM_H);
-    this.physics?.world?.setBounds?.(0, 0, WORLD_W, WORLD_H);
+    this.physics?.world?.setBounds?.(
+      -WORLD_RENDER_PADDING,
+      -WORLD_RENDER_PADDING,
+      WORLD_W + WORLD_RENDER_PADDING * 2,
+      WORLD_H + WORLD_RENDER_PADDING * 2,
+    );
 
     this.map = new GameMap(this);
     this.map.render();
@@ -145,10 +164,10 @@ export class GameScene extends Phaser.Scene {
     this.groups = new ControlGroups(this, this.selection);
     this.fog = new FogOfWar(this, () => this.entities);
 
+    this.sprinkleResources();
     this.spawnStartingArea('player', 4, 4);
     this.spawnStartingArea('enemy', MAP_W - 9, MAP_H - 9);
     this.registerAmbientBattlefieldZones();
-    this.sprinkleResources();
 
     this.ai = new AIController(
       this, this.map, this.economy, this.command,
@@ -158,7 +177,9 @@ export class GameScene extends Phaser.Scene {
 
     this.events.on('train:completed', this.onTrainCompleted, this);
     this.events.on('ai:train', this.onAiTrain);
+    this.events.on('ai:upgrade', this.onAiUpgrade);
     this.events.on('ui:train', this.onUiTrain);
+    this.events.on('ui:upgrade', this.onUiUpgrade);
     this.events.on('ui:build-start', this.onUiBuildStart);
     this.events.on('ui:stop', this.onUiStop);
     this.events.on('ui:hold', this.onUiHold);
@@ -167,6 +188,7 @@ export class GameScene extends Phaser.Scene {
 
     this.events.on('entity:damaged', this.onEntityDamaged, this);
     this.events.on('entity:died', this.onEntityDied, this);
+    this.events.on('building:upgraded', this.onBuildingUpgraded, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.onShutdown, this);
 
     this.setupInput();
@@ -194,6 +216,7 @@ export class GameScene extends Phaser.Scene {
     this.entities = this.entities.filter((e) => !e.dead);
     this.resources = this.resources.filter((r) => !r.dead);
     this.selection.pruneDead();
+    this.selection.update();
 
     const playerTH = this.entities.some((e) => e instanceof Building && e.team === 'player' && e.kind === 'townhall');
     const enemyTH = this.entities.some((e) => e instanceof Building && e.team === 'enemy' && e.kind === 'townhall');
@@ -209,7 +232,9 @@ export class GameScene extends Phaser.Scene {
   private onShutdown() {
     this.events.off('train:completed', this.onTrainCompleted, this);
     this.events.off('ai:train', this.onAiTrain);
+    this.events.off('ai:upgrade', this.onAiUpgrade);
     this.events.off('ui:train', this.onUiTrain);
+    this.events.off('ui:upgrade', this.onUiUpgrade);
     this.events.off('ui:build-start', this.onUiBuildStart);
     this.events.off('ui:stop', this.onUiStop);
     this.events.off('ui:hold', this.onUiHold);
@@ -217,6 +242,7 @@ export class GameScene extends Phaser.Scene {
     this.events.off('ui:cycle-idle', this.onUiCycleIdle);
     this.events.off('entity:damaged', this.onEntityDamaged, this);
     this.events.off('entity:died', this.onEntityDied, this);
+    this.events.off('building:upgraded', this.onBuildingUpgraded, this);
     this.command?.destroy?.();
     this.groups?.destroy?.();
     this.sound2?.destroy?.();
@@ -273,18 +299,22 @@ export class GameScene extends Phaser.Scene {
   }
 
   spawnUnit(x: number, y: number, kind: UnitKind, team: Team): Unit {
-    const u = new Unit(this, x, y, team, kind);
+    const desired = this.map.worldToTile(x, y);
+    const free = this.findNearestUnitFree(desired.tx, desired.ty, 8);
+    const spawn = free ? this.map.tileCenter(free.tx, free.ty) : { x, y };
+    const u = new Unit(this, spawn.x, spawn.y, team, kind);
     this.entities.push(u);
     return u;
   }
 
   spawnBuilding(tx: number, ty: number, kind: BuildingKind, team: Team, built: boolean): Building | null {
     const def = BUILDING_DEFS[kind];
-    if (!this.map.isRectFree(tx, ty, def.size)) return null;
+    if (!this.map.isRectFree(tx, ty, def.size) || !this.isUnitRectFree(tx, ty, def.size)) return null;
     this.map.setBlockedRect(tx, ty, def.size, true);
     this.path.markDirty();
     const b = new Building(this, tx, ty, team, kind, built);
     this.entities.push(b);
+    if (kind === 'barracks') this.refreshBarracksDeploymentPoint(b);
     this.buildingsBuilt[team] = (this.buildingsBuilt[team] ?? 0) + 1;
     return b;
   }
@@ -301,9 +331,50 @@ export class GameScene extends Phaser.Scene {
     return r;
   }
 
+  isUnitTileFree(tx: number, ty: number, ignore?: Unit): boolean {
+    if (!this.map.inBounds(tx, ty) || this.map.isBlocked(tx, ty)) return false;
+    for (const e of this.entities) {
+      if (!(e instanceof Unit) || e.dead || e === ignore) continue;
+      const tile = this.map.worldToTile(e.x, e.y);
+      if (tile.tx === tx && tile.ty === ty) return false;
+    }
+    return true;
+  }
+
+  findNearestUnitFree(tx: number, ty: number, radius = 8, ignore?: Unit): { tx: number; ty: number } | null {
+    if (this.isUnitTileFree(tx, ty, ignore)) return { tx, ty };
+    for (let r = 1; r <= radius; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
+          const nx = tx + dx;
+          const ny = ty + dy;
+          if (this.isUnitTileFree(nx, ny, ignore)) return { tx: nx, ty: ny };
+        }
+      }
+    }
+    return null;
+  }
+
+  private isUnitRectFree(tx: number, ty: number, size: number): boolean {
+    for (const e of this.entities) {
+      if (!(e instanceof Unit) || e.dead) continue;
+      const tile = this.map.worldToTile(e.x, e.y);
+      if (tile.tx >= tx && tile.ty >= ty && tile.tx < tx + size && tile.ty < ty + size) return false;
+    }
+    return true;
+  }
+
   private requestTrain(b: Building, kind: UnitKind): boolean {
     if (!b.isBuilt()) return false;
     const def = UNIT_DEFS[kind];
+    if (!this.economy.canTrainByTech(b.team, kind)) {
+      const requirement = unitTrainingRequirement(kind);
+      if (b.team === 'player' && requirement) {
+        this.notifications.add(`${T.requiresBuilding}: ${buildingName(requirement.building)} ${T.level} ${requirement.level}`, '#f59e0b');
+      }
+      return false;
+    }
     if (!this.economy.canTrain(b.team, kind)) {
       if (b.team === 'player') this.notifications.add(T.notEnoughResources, '#f59e0b');
       return false;
@@ -314,7 +385,27 @@ export class GameScene extends Phaser.Scene {
       if (b.team === 'player') this.notifications.add(T.queueFull, '#f59e0b');
       return false;
     }
-    b.applyTrainTime(kind, def.trainTime);
+    b.applyTrainTime(kind, Math.max(1000, Math.round(def.trainTime * b.trainTimeMultiplier())));
+    return true;
+  }
+
+  private requestUpgrade(b: Building): boolean {
+    if (!b || b.dead || b.team === undefined) return false;
+    if (!b.canUpgrade()) {
+      if (b.team === 'player') this.notifications.add(T.queueFull, '#f59e0b');
+      return false;
+    }
+    const upgrade = b.nextUpgradeDef();
+    if (!upgrade) return false;
+    if (!this.economy.spend(b.team, upgrade.cost.gold, upgrade.cost.wood)) {
+      if (b.team === 'player') this.notifications.add(T.notEnoughResources, '#f59e0b');
+      return false;
+    }
+    if (!b.startUpgrade()) {
+      this.economy.refund(b.team, upgrade.cost.gold, upgrade.cost.wood);
+      return false;
+    }
+    if (b.team === 'player') this.notifications.add(`${T.upgradeStarted}: ${upgrade.label}`, '#facc15');
     return true;
   }
 
@@ -325,8 +416,14 @@ export class GameScene extends Phaser.Scene {
     if (rp) this.command.moveTo([u], rp.x, rp.y);
     if (b.team === 'player') {
       this.sound2.play('notify');
-      this.sound2.voice('ready');
+      this.sound2.voice('ready', kind);
     }
+  };
+
+  private onBuildingUpgraded = (b: Building) => {
+    if (b.team !== 'player') return;
+    this.notifications.add(`${T.upgradeComplete}: ${buildingName(b.kind)} ${T.level} ${b.level}`, '#22c55e');
+    this.sound2.play('notify');
   };
 
   private onEntityDamaged = (victim: Entity, attacker?: Entity) => {
@@ -355,19 +452,42 @@ export class GameScene extends Phaser.Scene {
   };
 
   private findSpawnPoint(b: Building): { x: number; y: number } {
+    if (b.kind === 'barracks') {
+      const deployment = this.refreshBarracksDeploymentPoint(b);
+      if (deployment) return deployment;
+    }
     for (let r = 1; r < 5; r++) {
       for (let dy = -r; dy <= r; dy++) {
         for (let dx = -r; dx <= r; dx++) {
           if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
           const tx = b.tx + Math.floor(b.size / 2) + dx;
           const ty = b.ty + Math.floor(b.size / 2) + dy;
-          if (this.map.inBounds(tx, ty) && !this.map.isBlocked(tx, ty)) {
+          if (this.isUnitTileFree(tx, ty)) {
             return this.map.tileCenter(tx, ty);
           }
         }
       }
     }
     return { x: b.x, y: b.y + TILE * 2 };
+  }
+
+  private refreshBarracksDeploymentPoint(b: Building): { x: number; y: number } | null {
+    const center = b.tx + Math.floor(b.size / 2);
+    const candidates = [
+      { tx: center, ty: b.ty + b.size },
+      { tx: center - 1, ty: b.ty + b.size },
+      { tx: center + 1, ty: b.ty + b.size },
+      { tx: b.tx + b.size, ty: b.ty + Math.floor(b.size / 2) },
+      { tx: b.tx - 1, ty: b.ty + Math.floor(b.size / 2) },
+      { tx: center, ty: b.ty - 1 },
+    ];
+    for (const candidate of candidates) {
+      if (!this.isUnitTileFree(candidate.tx, candidate.ty)) continue;
+      const p = this.map.tileCenter(candidate.tx, candidate.ty);
+      b.setDeploymentPoint(p.x, p.y);
+      return p;
+    }
+    return null;
   }
 
   private setupInput() {
@@ -464,7 +584,7 @@ export class GameScene extends Phaser.Scene {
       const ty = Math.floor(world.y / TILE);
       const size = BUILDING_DEFS[this.pendingBuild].size;
       this.ghost.x = tx * TILE + (size * TILE) / 2;
-      this.ghost.y = ty * TILE + (size * TILE) / 2;
+      this.ghost.y = ty * TILE + (size * TILE) / 2 + this.ghostOffsetY;
       const ok = this.map.isRectFree(tx, ty, size);
       this.ghost.setTint(ok ? 0x66ff66 : 0xff6666);
     }
@@ -480,7 +600,7 @@ export class GameScene extends Phaser.Scene {
       if (sel && sel.length === 1) {
         const now = this.time.now;
         const single = sel[0];
-        if (single instanceof Unit && single.team === 'player') this.sound2.voice('select');
+        if (single instanceof Unit && single.team === 'player') this.sound2.voice('select', single.kind);
         if (this.lastClickedEntity === single && now - this.lastClickTime < 320) {
           this.selectSameTypeOnScreen(single);
         }
@@ -731,6 +851,8 @@ export class GameScene extends Phaser.Scene {
 
   private handleRightClick(pointer: Phaser.Input.Pointer, ui: any) {
     const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    if (this.handleSelectedBuildingCommand(world.x, world.y)) return;
+
     const units = this.playerSelectedUnits();
     if (units.length === 0) return;
 
@@ -740,7 +862,7 @@ export class GameScene extends Phaser.Scene {
       this.vfx.spawnSparks(world.x, world.y, 0xff4444, 8);
       this.notifications.add(T.attackMoveNotif, '#ef4444');
       this.sound2.play('order');
-      this.sound2.voice('attack');
+      this.sound2.voice('attack', this.selectedVoiceGroup());
       return;
     }
 
@@ -754,7 +876,7 @@ export class GameScene extends Phaser.Scene {
       this.command.patrol(units, pointA, { x: world.x, y: world.y });
       this.notifications.add(T.patrolSetNotif, '#22c55e');
       this.sound2.play('order');
-      this.sound2.voice('order');
+      this.sound2.voice('order', this.selectedVoiceGroup());
       return;
     }
 
@@ -781,7 +903,7 @@ export class GameScene extends Phaser.Scene {
         const fighters = units.filter((u) => u.kind !== 'peasant');
         if (fighters.length > 0) this.command.moveTo(fighters, world.x, world.y);
         this.sound2.play('order');
-        this.sound2.voice(peasants.length > 0 ? 'work' : 'order');
+        this.sound2.voice(peasants.length > 0 ? 'work' : 'order', peasants.length > 0 ? 'peasant' : this.selectedVoiceGroup());
         return;
       }
       if (target instanceof Building && (target as any).team === 'player') {
@@ -789,14 +911,14 @@ export class GameScene extends Phaser.Scene {
           const peasant = units.find(u => u.kind === 'peasant');
           if (peasant) this.command.buildWith(peasant, target);
           this.sound2.play('order');
-          this.sound2.voice('build');
+          this.sound2.voice('build', 'peasant');
           return;
         }
         if (target.isBuilt() && target.hp < target.maxHp && units.some(u => u.kind === 'peasant')) {
           const peasants = units.filter(u => u.kind === 'peasant');
           this.command.repair(peasants, target);
           this.sound2.play('order');
-          this.sound2.voice('work');
+          this.sound2.voice('work', 'peasant');
           return;
         }
         target.setRallyPoint(world.x, world.y);
@@ -808,14 +930,20 @@ export class GameScene extends Phaser.Scene {
         this.command.attackTarget(units, target as Entity);
         this.vfx.spawnSparks(world.x, world.y, 0xff4444, 4);
         this.sound2.play('order');
-        this.sound2.voice('attack');
+        this.sound2.voice('attack', this.selectedVoiceGroup());
         return;
       }
     }
     this.command.moveTo(units, world.x, world.y);
     this.vfx.spawnSparks(world.x, world.y, 0x3b82f6, 4);
     this.sound2.play('order');
-    this.sound2.voice('order');
+    this.sound2.voice('order', this.selectedVoiceGroup());
+  }
+
+  private selectedVoiceGroup(): UnitKind {
+    const units = this.playerSelectedUnits();
+    const fighter = units.find((u) => u.kind !== 'peasant');
+    return (fighter ?? units[0])?.kind ?? 'peasant';
   }
 
   private setupCamera() {
@@ -871,6 +999,21 @@ export class GameScene extends Phaser.Scene {
       e instanceof Unit && e.team === 'player' && !e.dead);
   }
 
+  private playerSelectedBarracks(): Building[] {
+    return this.selection.selected.filter((e): e is Building =>
+      e instanceof Building && e.team === 'player' && !e.dead && e.kind === 'barracks');
+  }
+
+  private handleSelectedBuildingCommand(x: number, y: number): boolean {
+    const barracks = this.playerSelectedBarracks().filter((b) => b.isBuilt());
+    if (barracks.length === 0) return false;
+    for (const b of barracks) b.setRallyPoint(x, y);
+    this.vfx.spawnSparks(x, y, 0xfacc15, 6);
+    this.notifications.add(T.deploymentPointSet, '#facc15');
+    this.sound2.play('click');
+    return true;
+  }
+
   private beginBuildPlacement(kind: BuildingKind) {
     this.cancelBuildPlacement();
     if (!this.economy.canBuild('player', kind)) {
@@ -880,13 +1023,24 @@ export class GameScene extends Phaser.Scene {
     }
     this.pendingBuild = kind;
     this.ghost = this.add.image(0, 0, `bld-${kind}-player-d`).setAlpha(0.6).setDepth(5000);
-    this.sound2.voice('build');
+    this.fitBuildGhost(kind);
+    this.sound2.voice('build', 'peasant');
   }
 
   private cancelBuildPlacement() {
     this.pendingBuild = null;
     this.ghost?.destroy();
     this.ghost = null;
+    this.ghostOffsetY = 0;
+  }
+
+  private fitBuildGhost(kind: BuildingKind) {
+    if (!this.ghost) return;
+    const sourceWidth = (this.ghost.frame as any).realWidth ?? this.ghost.frame.width ?? this.ghost.width;
+    const sourceHeight = (this.ghost.frame as any).realHeight ?? this.ghost.frame.height ?? this.ghost.height;
+    const fit = buildingImageFit(kind, sourceWidth, sourceHeight);
+    this.ghost.setScale(fit.scale);
+    this.ghostOffsetY = fit.y;
   }
 
   private tryPlaceBuilding(pointer: Phaser.Input.Pointer) {
@@ -896,7 +1050,7 @@ export class GameScene extends Phaser.Scene {
     const ty = Math.floor(world.y / TILE);
     const kind = this.pendingBuild;
     const def = BUILDING_DEFS[kind];
-    if (!this.map.isRectFree(tx, ty, def.size)) {
+    if (!this.map.isRectFree(tx, ty, def.size) || !this.isUnitRectFree(tx, ty, def.size)) {
       this.sound2.play('cancel');
       return;
     }
@@ -911,7 +1065,8 @@ export class GameScene extends Phaser.Scene {
       this.cancelBuildPlacement();
       return;
     }
-    const peasants = this.entities.filter((e): e is Unit =>
+    const selectedPeasants = this.playerSelectedUnits().filter((u) => u.kind === 'peasant');
+    const peasants = selectedPeasants.length > 0 ? selectedPeasants : this.entities.filter((e): e is Unit =>
       e instanceof Unit && e.team === 'player' && e.kind === 'peasant' && !e.dead);
     if (peasants.length > 0) {
       peasants.sort((a, b2) => Phaser.Math.Distance.Between(a.x, a.y, b.x, b.y) - Phaser.Math.Distance.Between(b2.x, b2.y, b.x, b.y));
@@ -920,6 +1075,6 @@ export class GameScene extends Phaser.Scene {
     this.cancelBuildPlacement();
     this.notifications.add(`${T.buildingNotif} ${buildingName(kind)}...`, '#facc15');
     this.sound2.play('order');
-    this.sound2.voice('build');
+    this.sound2.voice('build', 'peasant');
   }
 }

@@ -6,11 +6,16 @@ export const T = {
   peasant: 'Крестьянин',
   footman: 'Пехотинец',
   archer: 'Лучник',
+  knight: 'Рыцарь',
+  cavalier: 'Кавалерист',
+  horseArcher: 'Конный лучник',
+  horseKnight: 'Конный рыцарь',
 
   townhall: 'Ратуша',
   barracks: 'Казармы',
   farm: 'Ферма',
   tower: 'Башня',
+  jousting: 'Ристалище',
 
   tree: 'Дерево',
   goldmine: 'Шахта',
@@ -36,6 +41,7 @@ export const T = {
   ready: 'Готово',
   building_progress: 'Строится',
   queue: 'Очередь',
+  buildQueue: 'Очередь строек',
   stock: 'Запас',
   selected: 'Выделено',
   idleWorkers: 'Свободные работники',
@@ -66,10 +72,16 @@ export const T = {
   holdPosition: 'Держать',
   holdShort: 'Позиция',
   repairCmd: 'Ремонт',
+  upgrade: 'Апгрейд',
+  upgrading: 'Улучшается',
+  level: 'Ур.',
 
   attackMoveNotif: 'Атака-движение!',
   patrolSetNotif: 'Патруль установлен!',
   rallyPointSet: 'Точка сбора установлена',
+  deploymentPointSet: 'Точка высадки казарм установлена',
+  upgradeStarted: 'Апгрейд начат',
+  upgradeComplete: 'Апгрейд завершён',
   buildingNotif: 'Строим',
   buildingComplete: 'Постройка завершена!',
   trainedNotif: 'обучен!',
@@ -80,6 +92,7 @@ export const T = {
   notEnoughResources: 'Недостаточно ресурсов',
   notEnoughFood: 'Недостаточно еды',
   queueFull: 'Очередь заполнена',
+  requiresBuilding: 'Требуется',
 
   victory: 'ПОБЕДА',
   defeat: 'ПОРАЖЕНИЕ',
@@ -88,19 +101,20 @@ export const T = {
   buildingsStat: 'Постройки',
   playAgain: 'Играть снова',
 
-  helpText: 'ЛКМ выделить  ПКМ/Option+ЛКМ команда  колесо/тачпад прокрутка  Cmd+колесо зум\nТач: тап выделить, долгий тап команда, два пальца пан/зум  A/P/H/R режимы  Space пауза\nCtrl+1..9 группа  ` свободный  Esc отмена  Ctrl+Shift+L логи',
+  helpText: 'ЛКМ выделить  ПКМ/Option+ЛКМ команда  колесо/тачпад прокрутка  Cmd+колесо зум\nТач: тап выделить, долгий тап команда, два пальца пан/зум  A/P/H/R/U/J режимы  Space пауза\nCtrl+1..9 группа  ` свободный  Esc отмена  Ctrl+Shift+L логи',
 };
 
 export function unitName(kind: string): string {
   const map: Record<string, string> = {
-    peasant: T.peasant, footman: T.footman, archer: T.archer,
+    peasant: T.peasant, footman: T.footman, archer: T.archer, knight: T.knight,
+    cavalier: T.cavalier, horseArcher: T.horseArcher, horseKnight: T.horseKnight,
   };
   return map[kind] ?? kind;
 }
 
 export function buildingName(kind: string): string {
   const map: Record<string, string> = {
-    townhall: T.townhall, barracks: T.barracks, farm: T.farm, tower: T.tower,
+    townhall: T.townhall, barracks: T.barracks, farm: T.farm, tower: T.tower, jousting: T.jousting,
   };
   return map[kind] ?? kind;
 }

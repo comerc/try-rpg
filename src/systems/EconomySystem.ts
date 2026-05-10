@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { Team, FOOD_BASE_CAP, BUILDING_DEFS, UNIT_DEFS, UnitKind, BuildingKind, START_RESOURCES } from '../config';
+import { Team, FOOD_BASE_CAP, BUILDING_DEFS, UNIT_DEFS, UnitKind, BuildingKind, START_RESOURCES, nextBuildingUpgrade, unitTrainingRequirement } from '../config';
 import { Entity } from '../entities/Entity';
 import { Unit } from '../entities/Unit';
 import { Building } from '../entities/Building';
@@ -66,11 +66,29 @@ export class EconomySystem {
 
   canTrain(team: Team, kind: UnitKind): boolean {
     const def = UNIT_DEFS[kind];
-    return this.canAfford(team, def.cost.gold, def.cost.wood, def.cost.food);
+    return this.canTrainByTech(team, kind) && this.canAfford(team, def.cost.gold, def.cost.wood, def.cost.food);
+  }
+
+  canTrainByTech(team: Team, kind: UnitKind): boolean {
+    const requirement = unitTrainingRequirement(kind);
+    if (!requirement) return true;
+    return this.hasBuiltBuilding(team, requirement.building, requirement.level);
+  }
+
+  hasBuiltBuilding(team: Team, kind: BuildingKind, level = 1): boolean {
+    return this.getEntities().some((e) => (
+      e instanceof Building && e.team === team && !e.dead && e.kind === kind && e.isBuilt() && e.level >= level
+    ));
   }
 
   canBuild(team: Team, kind: BuildingKind): boolean {
     const def = BUILDING_DEFS[kind];
     return this.canAfford(team, def.cost.gold, def.cost.wood, 0);
+  }
+
+  canUpgrade(team: Team, kind: BuildingKind, currentLevel: number): boolean {
+    const upgrade = nextBuildingUpgrade(kind, currentLevel);
+    if (!upgrade) return false;
+    return this.canAfford(team, upgrade.cost.gold, upgrade.cost.wood, 0);
   }
 }

@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
-import { MAP_H, MAP_W, TILE, WORLD_H, WORLD_W } from '../config';
+import { getGraphicsQuality, MAP_H, MAP_W, TILE, WORLD_H, WORLD_RENDER_PADDING, WORLD_W } from '../config';
+import { TERRAIN_ANIMATION_FRAME_COUNT } from '../assets/AssetManifest';
 
 export type TileType = 'grass' | 'dirt' | 'water' | 'stone' | 'grass-rich';
 
@@ -16,15 +17,30 @@ export class GameMap {
   readonly h = MAP_H;
   readonly tiles: TileType[][] = [];
   readonly grid: number[][] = [];
+  private readonly terrainBlocked: boolean[][] = [];
   private biomeSeed: string;
-  private animatedTiles: Array<{ img: Phaser.GameObjects.Image; base: string; offset: number; frames: number }> = [];
+  private animatedTiles: Array<{
+    img: Phaser.GameObjects.Image;
+    base: string;
+    offset: number;
+    frames: number;
+    interval: number;
+    tint: number;
+    tile: TileType;
+  }> = [];
+  private waterFxCells: Array<{ x: number; y: number; phase: number; variant: number }> = [];
+  private grassFxCells: Array<{ x: number; y: number; phase: number; rich: boolean; variant: number }> = [];
+  private terrainFx: Phaser.GameObjects.Graphics | null = null;
   private lastTileFrame = -1;
+  private lastTerrainFxFrame = -1;
+  private readonly proceduralTerrainFx = getGraphicsQuality() !== 'low';
 
   constructor(private scene: Phaser.Scene) {
     this.biomeSeed = String(Date.now());
     for (let y = 0; y < this.h; y++) {
       this.tiles[y] = [];
       this.grid[y] = [];
+      this.terrainBlocked[y] = [];
       for (let x = 0; x < this.w; x++) {
         const nx = x / this.w;
         const ny = y / this.h;
@@ -50,7 +66,8 @@ export class GameMap {
         else if (dirtScore > 0.95) t = 'dirt';
         else if (richScore > 0.88) t = 'grass-rich';
         this.tiles[y][x] = t;
-        this.grid[y][x] = 0;
+        this.terrainBlocked[y][x] = this.isImpassableTerrain(t);
+        this.grid[y][x] = this.terrainBlocked[y][x] ? 1 : 0;
       }
     }
   }
@@ -70,44 +87,126 @@ export class GameMap {
         img.setScale(1.01 + rng.frac() * 0.04);
         img.setFlipX(rng.frac() > 0.5);
         img.setFlipY(rng.frac() > 0.78);
-        img.setTint(this.getTileTint(x, y, tile));
-        if (tile === 'water' || tile === 'grass-rich') {
+        const tint = this.getTileTint(x, y, tile);
+        img.setTint(tint);
+        if (this.shouldAnimateTile(tile)) {
           this.animatedTiles.push({
             img,
-            base: tile === 'water' ? 'tile-water' : 'tile-grass-rich',
-            offset: Math.floor(rng.frac() * 4),
-            frames: 4,
+            base: `tile-${tile}`,
+            offset: Math.floor(rng.frac() * TERRAIN_ANIMATION_FRAME_COUNT),
+            frames: TERRAIN_ANIMATION_FRAME_COUNT,
+            interval: this.tileAnimationInterval(tile),
+            tint,
+            tile,
           });
         }
+        this.registerProceduralTerrainFx(x, y, tile, rng);
       }
     }
 
     this.renderTerrainDetails();
+    if (this.proceduralTerrainFx) this.terrainFx = this.scene.add.graphics().setDepth(-88);
   }
 
   update(time: number) {
-    const frameBucket = Math.floor(time / 260);
-    if (frameBucket === this.lastTileFrame) return;
-    this.lastTileFrame = frameBucket;
-    for (const tile of this.animatedTiles) {
-      const frame = (frameBucket + tile.offset) % tile.frames;
-      const key = `${tile.base}-${frame}`;
-      if (this.scene.textures.exists(key) && tile.img.texture.key !== key) {
-        tile.img.setTexture(key).setDisplaySize(TILE, TILE);
+    const frameBucket = Math.floor(time / 80);
+    if (frameBucket !== this.lastTileFrame) {
+      this.lastTileFrame = frameBucket;
+      for (const tile of this.animatedTiles) {
+        const frame = (Math.floor(time / tile.interval) + tile.offset) % tile.frames;
+        const key = `${tile.base}-${frame}`;
+        if (this.scene.textures.exists(key) && tile.img.texture.key !== key) {
+          tile.img.setTexture(key);
+        }
+        tile.img.setAlpha(tile.tile === 'water' ? 0.97 : 0.99);
+        tile.img.setTint(tile.tint);
       }
     }
+    this.updateProceduralTerrainFx(time);
   }
 
   private initialTextureFor(tile: TileType, rng: Phaser.Math.RandomDataGenerator): string {
     if ((tile === 'water' || tile === 'grass-rich' || tile === 'grass' || tile === 'dirt') && this.scene.textures.exists(`tile-${tile}-0`)) {
-      return `tile-${tile}-${Math.floor(rng.frac() * 4)}`;
+      return `tile-${tile}-${Math.floor(rng.frac() * TERRAIN_ANIMATION_FRAME_COUNT)}`;
     }
     return TEX[tile];
   }
 
+  private shouldAnimateTile(tile: TileType): boolean {
+    return tile === 'dirt' && this.scene.textures.exists(`tile-${tile}-0`);
+  }
+
+  private tileAnimationInterval(tile: TileType): number {
+    if (tile === 'water') return 110;
+    if (tile === 'dirt') return 720;
+    if (tile === 'grass-rich') return 360;
+    return 480;
+  }
+
+  private registerProceduralTerrainFx(tx: number, ty: number, tile: TileType, rng: Phaser.Math.RandomDataGenerator) {
+    if (!this.proceduralTerrainFx) return;
+    const x = tx * TILE + TILE / 2;
+    const y = ty * TILE + TILE / 2;
+    if (tile === 'water') {
+      this.waterFxCells.push({ x, y, phase: rng.frac() * Math.PI * 2, variant: rng.frac() });
+      return;
+    }
+    if (tile !== 'grass' && tile !== 'grass-rich') return;
+    const rich = tile === 'grass-rich';
+    const chance = rich ? 0.44 : 0.24;
+    if (rng.frac() > chance) return;
+    this.grassFxCells.push({ x, y, phase: rng.frac() * Math.PI * 2, rich, variant: rng.frac() });
+  }
+
+  private updateProceduralTerrainFx(time: number) {
+    if (!this.terrainFx) return;
+    const bucket = Math.floor(time / 110);
+    if (bucket === this.lastTerrainFxFrame) return;
+    this.lastTerrainFxFrame = bucket;
+
+    const g = this.terrainFx;
+    g.clear();
+
+    for (const cell of this.waterFxCells) {
+      const slow = time / 2200 + cell.phase;
+      const slow2 = time / 3100 + cell.phase * 1.7;
+      const drift = Math.sin(slow) * 3.4;
+      const lift = Math.cos(slow2) * 1.6;
+      const alpha = 0.035 + (Math.sin(slow2) + 1) * 0.014;
+      const width = 16 + cell.variant * 10;
+      g.fillStyle(0x7dd3fc, alpha * 0.38);
+      g.fillEllipse(cell.x + drift * 0.5, cell.y + lift, TILE * 0.78, TILE * 0.25);
+      g.lineStyle(1.2, 0xdbeafe, alpha);
+      g.lineBetween(cell.x - width + drift, cell.y - 7 + lift, cell.x + width * 0.35 + drift, cell.y - 8 + lift + Math.sin(slow) * 1.4);
+      g.lineStyle(1, 0xbdeaff, alpha * 0.62);
+      g.lineBetween(cell.x - width * 0.5 - drift * 0.35, cell.y + 6 - lift * 0.3, cell.x + width - drift * 0.35, cell.y + 5 + Math.cos(slow) * 1.1);
+    }
+
+    for (const cell of this.grassFxCells) {
+      const slow = time / (cell.rich ? 2600 : 3200) + cell.phase;
+      const sway = Math.sin(slow) * (cell.rich ? 3.1 : 2.2);
+      const alpha = (cell.rich ? 0.075 : 0.052) + (Math.cos(slow * 0.8) + 1) * 0.012;
+      const bladeColor = cell.rich ? 0xd9f99d : 0x86efac;
+      const count = cell.rich ? 3 : 2;
+      for (let i = 0; i < count; i++) {
+        const local = cell.variant * 19 + i * 8;
+        const gx = cell.x - 12 + ((local * 7) % 25);
+        const gy = cell.y - 6 + ((local * 5) % 15);
+        const height = 5.5 + (i % 2) * 2.5;
+        g.lineStyle(1, bladeColor, alpha * (0.82 - i * 0.12));
+        g.lineBetween(gx, gy + 4, gx + sway * (0.55 + i * 0.18), gy - height);
+      }
+    }
+  }
+
   private renderBackdrop() {
     const bg = this.scene.add.graphics().setDepth(-140);
-    bg.fillStyle(0x06100d, 1).fillRect(0, 0, WORLD_W, WORLD_H);
+    bg.fillStyle(0x06100d, 1).fillRect(
+      -WORLD_RENDER_PADDING,
+      -WORLD_RENDER_PADDING,
+      WORLD_W + WORLD_RENDER_PADDING * 2,
+      WORLD_H + WORLD_RENDER_PADDING * 2,
+    );
 
     const light = this.scene.add.graphics().setDepth(-138);
     light.fillStyle(0x17381f, 0.45).fillEllipse(WORLD_W * 0.25, WORLD_H * 0.22, WORLD_W * 0.55, WORLD_H * 0.42);
@@ -217,6 +316,10 @@ export class GameMap {
     return this.tiles[y][x];
   }
 
+  private isImpassableTerrain(tile: TileType): boolean {
+    return tile === 'water' || tile === 'stone';
+  }
+
   private getTileTint(x: number, y: number, tile: TileType): number {
     const nx = x / this.w;
     const ny = y / this.h;
@@ -241,7 +344,7 @@ export class GameMap {
 
   setBlocked(tx: number, ty: number, blocked: boolean) {
     if (!this.inBounds(tx, ty)) return;
-    this.grid[ty][tx] = blocked ? 1 : 0;
+    this.grid[ty][tx] = blocked || this.terrainBlocked[ty][tx] ? 1 : 0;
   }
 
   setBlockedRect(tx: number, ty: number, size: number, blocked: boolean) {
@@ -253,6 +356,11 @@ export class GameMap {
   isBlocked(tx: number, ty: number): boolean {
     if (!this.inBounds(tx, ty)) return true;
     return this.grid[ty][tx] !== 0;
+  }
+
+  isTerrainBlocked(tx: number, ty: number): boolean {
+    if (!this.inBounds(tx, ty)) return true;
+    return this.terrainBlocked[ty][tx];
   }
 
   isRectFree(tx: number, ty: number, size: number): boolean {

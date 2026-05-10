@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { getGraphicsQuality, type GraphicsQuality } from '../config';
 
 interface Particle {
   x: number;
@@ -106,9 +107,17 @@ export class VFXSystem {
   private shakeDecay = 0.92;
   private scene: Phaser.Scene;
   private elapsed = 0;
+  private quality: GraphicsQuality;
+  private particleLimit: number;
+  private ambientLimit: number;
+  private glowEnabled: boolean;
 
   constructor(private sceneRef: Phaser.Scene) {
     this.scene = sceneRef;
+    this.quality = getGraphicsQuality();
+    this.particleLimit = this.quality === 'high' ? 420 : this.quality === 'medium' ? 240 : 120;
+    this.ambientLimit = this.quality === 'high' ? 28 : this.quality === 'medium' ? 16 : 6;
+    this.glowEnabled = this.quality !== 'low';
     this.graphics = sceneRef.add.graphics().setDepth(9000);
     this.glowGraphics = sceneRef.add.graphics().setDepth(8999);
     for (let i = 0; i < this.maxPoolSize; i++) {
@@ -122,7 +131,7 @@ export class VFXSystem {
       t.setShadow(0, 2, '#000000', 6, true, true);
       this.textObjects.push(t);
     }
-    for (let i = 0; i < 28; i++) {
+    for (let i = 0; i < this.ambientLimit; i++) {
       this.spawnAmbientDust();
     }
   }
@@ -146,7 +155,9 @@ export class VFXSystem {
   }
 
   spawnSparks(x: number, y: number, color: number, count = 8) {
+    count = this.scaleCount(count);
     for (let i = 0; i < count; i++) {
+      if (!this.canSpawnParticle()) return;
       const angle = Math.random() * Math.PI * 2;
       const speed = 40 + Math.random() * 110;
       this.particles.push({
@@ -167,7 +178,8 @@ export class VFXSystem {
   }
 
   spawnBlood(x: number, y: number, color: number = 0xc1272d) {
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < this.scaleCount(10); i++) {
+      if (!this.canSpawnParticle()) return;
       const angle = -Math.PI / 2 + (Math.random() - 0.5) * 2.5;
       const speed = 30 + Math.random() * 90;
       this.particles.push({
@@ -188,7 +200,8 @@ export class VFXSystem {
   }
 
   spawnDeathExplosion(x: number, y: number, color: number) {
-    for (let i = 0; i < 26; i++) {
+    for (let i = 0; i < this.scaleCount(26); i++) {
+      if (!this.canSpawnParticle()) return;
       const angle = Math.random() * Math.PI * 2;
       const speed = 30 + Math.random() * 145;
       this.particles.push({
@@ -227,7 +240,8 @@ export class VFXSystem {
   }
 
   spawnDustCloud(x: number, y: number, count = 6) {
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < this.scaleCount(count); i++) {
+      if (!this.canSpawnParticle()) return;
       const angle = Math.random() * Math.PI * 2;
       const speed = 10 + Math.random() * 30;
       this.particles.push({
@@ -250,7 +264,8 @@ export class VFXSystem {
 
   spawnFireBurst(x: number, y: number, count = 8) {
     const fireColors = [0xff4400, 0xff6600, 0xffaa00, 0xffdd44];
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < this.scaleCount(count); i++) {
+      if (!this.canSpawnParticle()) return;
       const angle = -Math.PI / 2 + (Math.random() - 0.5) * 1.8;
       const speed = 20 + Math.random() * 70;
       this.particles.push({
@@ -274,7 +289,8 @@ export class VFXSystem {
 
   spawnSmokePlume(x: number, y: number, count = 6, scale = 1) {
     const colors = [0x262626, 0x3f3f46, 0x52525b, 0x78716c];
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < this.scaleCount(count); i++) {
+      if (!this.canSpawnParticle()) return;
       const angle = -Math.PI / 2 + (Math.random() - 0.5) * 1.4;
       const speed = (12 + Math.random() * 18) * scale;
       this.particles.push({
@@ -296,7 +312,8 @@ export class VFXSystem {
   }
 
   spawnHeal(x: number, y: number) {
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < this.scaleCount(8); i++) {
+      if (!this.canSpawnParticle()) return;
       const angle = -Math.PI / 2 + (Math.random() - 0.5) * 1.5;
       const speed = 15 + Math.random() * 35;
       this.particles.push({
@@ -319,7 +336,8 @@ export class VFXSystem {
   }
 
   spawnGatherParticle(x: number, y: number, color: number) {
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < this.scaleCount(4); i++) {
+      if (!this.canSpawnParticle()) return;
       const angle = -Math.PI / 2 + (Math.random() - 0.5) * 1.5;
       const speed = 18 + Math.random() * 35;
       this.particles.push({
@@ -340,7 +358,8 @@ export class VFXSystem {
   }
 
   spawnBuildParticle(x: number, y: number) {
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < this.scaleCount(4); i++) {
+      if (!this.canSpawnParticle()) return;
       const angle = -Math.PI / 2 + (Math.random() - 0.5) * 2;
       const speed = 12 + Math.random() * 30;
       this.particles.push({
@@ -419,7 +438,8 @@ export class VFXSystem {
   }
 
   spawnMuzzleFlash(x: number, y: number, angle: number) {
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < this.scaleCount(5); i++) {
+      if (!this.canSpawnParticle()) return;
       const a = angle + (Math.random() - 0.5) * 0.8;
       const speed = 40 + Math.random() * 60;
       this.particles.push({
@@ -454,6 +474,7 @@ export class VFXSystem {
   }
 
   spawnAmbientMote(x: number, y: number, color: number, intensity = 1) {
+    if (!this.canSpawnParticle()) return;
     this.particles.push({
       x,
       y,
@@ -472,6 +493,7 @@ export class VFXSystem {
   }
 
   spawnEmber(x: number, y: number, color: number = 0xf97316, intensity = 1) {
+    if (!this.canSpawnParticle()) return;
     this.particles.push({
       x: x + (Math.random() - 0.5) * 6 * intensity,
       y: y + (Math.random() - 0.5) * 4 * intensity,
@@ -534,7 +556,7 @@ export class VFXSystem {
       } else {
         this.graphics.fillCircle(p.x, p.y, sz);
       }
-      if (p.glow && alpha > 0.18) {
+      if (this.glowEnabled && p.glow && alpha > 0.18) {
         this.glowGraphics.fillStyle(p.color, alpha * 0.24);
         if ((p.elongation ?? 1) > 1.05) {
           this.glowGraphics.fillEllipse(p.x, p.y, sz * (p.elongation ?? 1) * 1.6, sz * 1.6);
@@ -551,8 +573,10 @@ export class VFXSystem {
       const progress = 1 - r.life / r.maxLife;
       r.radius = progress * r.maxRadius;
       const alpha = r.life / r.maxLife;
-      this.glowGraphics.lineStyle(r.width * (1 + progress), r.color, alpha * 0.55);
-      this.glowGraphics.strokeCircle(r.x, r.y, r.radius);
+      if (this.glowEnabled) {
+        this.glowGraphics.lineStyle(r.width * (1 + progress), r.color, alpha * 0.55);
+        this.glowGraphics.strokeCircle(r.x, r.y, r.radius);
+      }
       this.graphics.lineStyle(r.width * 0.62, r.color, alpha * 0.95);
       this.graphics.strokeCircle(r.x, r.y, r.radius);
       return true;
@@ -574,10 +598,12 @@ export class VFXSystem {
         const y2 = w.y + Math.sin(a2) * w.radius;
         this.graphics.lineBetween(x1, y1, x2, y2);
       }
-      this.glowGraphics.lineStyle(5 * alpha, w.color, alpha * 0.2);
-      this.glowGraphics.beginPath();
-      this.glowGraphics.arc(w.x, w.y, w.radius, startAngle, startAngle + w.arcSpan, false);
-      this.glowGraphics.strokePath();
+      if (this.glowEnabled) {
+        this.glowGraphics.lineStyle(5 * alpha, w.color, alpha * 0.2);
+        this.glowGraphics.beginPath();
+        this.glowGraphics.arc(w.x, w.y, w.radius, startAngle, startAngle + w.arcSpan, false);
+        this.glowGraphics.strokePath();
+      }
       return true;
     });
 
@@ -618,14 +644,18 @@ export class VFXSystem {
         const prev = p.trail[i - 1];
         const cur = p.trail[i];
         const trailAlpha = (i / p.trail.length) * 0.34;
-        this.glowGraphics.lineStyle(Math.max(1, p.size * (i / p.trail.length) * 0.8), p.glowColor ?? p.color, trailAlpha);
-        this.glowGraphics.lineBetween(prev.x, prev.y, cur.x, cur.y);
+        if (this.glowEnabled) {
+          this.glowGraphics.lineStyle(Math.max(1, p.size * (i / p.trail.length) * 0.8), p.glowColor ?? p.color, trailAlpha);
+          this.glowGraphics.lineBetween(prev.x, prev.y, cur.x, cur.y);
+        }
         this.graphics.fillStyle(p.color, trailAlpha * 1.4);
         this.graphics.fillCircle(cur.x, cur.y, p.size * (i / p.trail.length) * 0.7);
       }
 
-      this.glowGraphics.fillStyle(p.glowColor ?? p.color, 0.3);
-      this.glowGraphics.fillCircle(nx, ny, p.size * 3.2);
+      if (this.glowEnabled) {
+        this.glowGraphics.fillStyle(p.glowColor ?? p.color, 0.3);
+        this.glowGraphics.fillCircle(nx, ny, p.size * 3.2);
+      }
       this.graphics.fillStyle(p.color, 1);
       this.graphics.fillCircle(nx, ny, p.size);
       this.graphics.fillStyle(0xffffff, 0.72);
@@ -637,7 +667,7 @@ export class VFXSystem {
     const vw = cam.worldView;
     for (const zone of this.ambientZones) {
       zone.pulse += dt * (0.8 + zone.rate * 0.35);
-      const spawnChance = dt * zone.rate * 2.2;
+      const spawnChance = dt * zone.rate * (this.quality === 'high' ? 2.2 : this.quality === 'medium' ? 1.25 : 0.35);
       if (Math.random() < spawnChance) {
         const angle = Math.random() * Math.PI * 2;
         const dist = Math.random() * zone.radius;
@@ -664,13 +694,28 @@ export class VFXSystem {
         const fadeIn = Phaser.Math.Clamp((d.maxLife - d.life) / (d.maxLife * 0.2), 0, 1);
         const fadeOut = Phaser.Math.Clamp(d.life / (d.maxLife * 0.28), 0, 1);
         const alpha = d.alpha * fadeIn * fadeOut * (0.8 + Math.sin(d.pulse) * 0.2);
-        this.glowGraphics.fillStyle(d.color, alpha);
-        this.glowGraphics.fillCircle(d.x, d.y, d.size);
+        if (this.glowEnabled) {
+          this.glowGraphics.fillStyle(d.color, alpha);
+          this.glowGraphics.fillCircle(d.x, d.y, d.size);
+        } else {
+          this.graphics.fillStyle(d.color, alpha);
+          this.graphics.fillCircle(d.x, d.y, d.size);
+        }
         return true;
       });
-      while (this.ambientDust.length < 28) {
+      while (this.ambientDust.length < this.ambientLimit) {
         this.spawnAmbientDust();
       }
     }
+  }
+
+  private canSpawnParticle(): boolean {
+    return this.particles.length < this.particleLimit;
+  }
+
+  private scaleCount(count: number): number {
+    if (this.quality === 'high') return count;
+    if (this.quality === 'medium') return Math.max(1, Math.ceil(count * 0.62));
+    return Math.max(1, Math.ceil(count * 0.35));
   }
 }

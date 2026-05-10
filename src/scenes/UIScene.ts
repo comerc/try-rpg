@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { BUILDING_DEFS, BuildingKind, Team, TILE, UNIT_DEFS, UnitKind, VIEWPORT_H, VIEWPORT_W, WORLD_H, WORLD_W } from '../config';
+import { BUILDING_DEFS, BuildingKind, Team, TILE, UNIT_DEFS, UnitKind, VIEWPORT_H, VIEWPORT_W, WORLD_H, WORLD_W, unitTrainingRequirement } from '../config';
 import { Entity } from '../entities/Entity';
 import { Unit } from '../entities/Unit';
 import { Building } from '../entities/Building';
@@ -7,6 +7,10 @@ import { ResourceNode } from '../entities/Resource';
 import { T, unitName, buildingName } from '../i18n';
 
 type VolumeKind = 'music' | 'effects' | 'voice';
+type ButtonOptions = {
+  tooltip?: string;
+  iconKey?: string;
+};
 
 export class UIScene extends Phaser.Scene {
   private resourceText!: Phaser.GameObjects.Text;
@@ -39,12 +43,12 @@ export class UIScene extends Phaser.Scene {
   private readonly compactUi = VIEWPORT_W / VIEWPORT_H >= 1.7;
   private readonly bottomPanelH = 154;
   private readonly bottomBarH = this.compactUi ? 138 : 154;
-  private readonly actionButtonW = this.compactUi ? 154 : 175;
-  private readonly actionButtonH = this.compactUi ? 28 : 32;
-  private readonly actionButtonGap = this.compactUi ? 6 : 8;
-  private readonly actionButtonFont = this.compactUi ? '10px' : '12px';
-  private readonly buttonsOriginX = VIEWPORT_W - ((this.compactUi ? 154 : 175) * 2 + (this.compactUi ? 6 : 8) + 16);
-  private readonly buttonsOriginY = VIEWPORT_H - (this.compactUi ? 126 : 140);
+  private readonly actionButtonW = this.compactUi ? 168 : 186;
+  private readonly actionButtonH = this.compactUi ? 34 : 36;
+  private readonly actionButtonGap = this.compactUi ? 8 : 10;
+  private readonly actionButtonFont = this.compactUi ? '12px' : '13px';
+  private readonly buttonsOriginX = VIEWPORT_W - ((this.compactUi ? 168 : 186) * 2 + (this.compactUi ? 8 : 10) + 20);
+  private readonly buttonsOriginY = VIEWPORT_H - (this.compactUi ? 132 : 144);
   private readonly minimapW = this.compactUi ? 178 : 200;
   private readonly minimapH = this.compactUi ? 112 : 130;
   private lastAffordHash: string | null = null;
@@ -77,17 +81,17 @@ export class UIScene extends Phaser.Scene {
     chrome.fillStyle(0xffffff, 0.05).fillRect(VIEWPORT_W / 2 + 106, VIEWPORT_H - this.bottomBarH + 10, 1, this.bottomBarH - 20);
 
     this.resourceText = this.add.text(16, 10, '', {
-      fontFamily: 'Trebuchet MS, monospace', fontSize: this.compactUi ? '16px' : '18px', color: '#ffe066', fontStyle: 'bold',
+      fontFamily: 'Trebuchet MS, monospace', fontSize: this.compactUi ? '17px' : '19px', color: '#ffe066', fontStyle: 'bold',
     });
     this.resourceText.setShadow(0, 2, '#000000', 5, true, true);
 
     this.gameTimerText = this.add.text(VIEWPORT_W - 56, 10, '0:00', {
-      fontFamily: 'Trebuchet MS, monospace', fontSize: this.compactUi ? '14px' : '16px', color: '#cbd5e1',
+      fontFamily: 'Trebuchet MS, monospace', fontSize: this.compactUi ? '15px' : '17px', color: '#cbd5e1',
     }).setOrigin(1, 0);
     this.gameTimerText.setShadow(0, 2, '#000000', 4, true, true);
 
     this.idleText = this.add.text(VIEWPORT_W - 142, 10, '', {
-      fontFamily: 'Trebuchet MS, monospace', fontSize: this.compactUi ? '12px' : '14px', color: '#fbbf24', fontStyle: 'bold',
+      fontFamily: 'Trebuchet MS, monospace', fontSize: this.compactUi ? '13px' : '15px', color: '#fbbf24', fontStyle: 'bold',
     }).setOrigin(1, 0).setInteractive({ useHandCursor: true });
     this.idleText.setShadow(0, 2, '#000000', 4, true, true);
     this.idleText.on('pointerdown', (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
@@ -106,13 +110,13 @@ export class UIScene extends Phaser.Scene {
     this.add.rectangle(portraitX, portraitY, portraitFrame, portraitFrame, 0xffffff, 0.02).setStrokeStyle(1, 0xffffff, 0.08);
 
     this.selectionText = this.add.text(this.compactUi ? 102 : 116, VIEWPORT_H - this.bottomBarH + 18, '', {
-      fontFamily: 'Trebuchet MS, monospace', fontSize: this.compactUi ? '11px' : '13px', color: '#e2e8f0',
-      wordWrap: { width: this.compactUi ? 330 : 430 },
+      fontFamily: 'Trebuchet MS, monospace', fontSize: this.compactUi ? '12px' : '14px', color: '#e2e8f0',
+      wordWrap: { width: this.compactUi ? 390 : 450 },
     }).setLineSpacing(this.compactUi ? 0 : 2);
     this.selectionText.setShadow(0, 2, '#000000', 4, true, true);
 
     this.helpText = this.add.text(14, VIEWPORT_H - 4, '', {
-      fontFamily: 'Trebuchet MS, monospace', fontSize: this.compactUi ? '9px' : '10px', color: '#7f95ab',
+      fontFamily: 'Trebuchet MS, monospace', fontSize: this.compactUi ? '10px' : '11px', color: '#9fb1c4',
       wordWrap: { width: this.compactUi ? 560 : 720 },
     }).setOrigin(0, 1).setLineSpacing(this.compactUi ? 0 : 2).setText(T.helpText);
 
@@ -164,6 +168,7 @@ export class UIScene extends Phaser.Scene {
     kb?.on('keydown-B', () => this.requestBuild('barracks'));
     kb?.on('keydown-F', () => this.requestBuild('farm'));
     kb?.on('keydown-W', () => this.requestBuild('tower'));
+    kb?.on('keydown-J', () => this.requestBuild('jousting'));
     kb?.on('keydown-H', () => {
       this.scene.get('Game').events.emit('ui:hold');
     });
@@ -171,6 +176,10 @@ export class UIScene extends Phaser.Scene {
       const sel = this.selected;
       const hasPeasant = sel.some((e) => e instanceof Unit && e.team === 'player' && e.kind === 'peasant');
       if (hasPeasant) this.setRepairMode();
+    });
+    kb?.on('keydown-U', () => {
+      const first = this.selected[0];
+      if (first instanceof Building && first.team === 'player') this.scene.get('Game').events.emit('ui:upgrade', first);
     });
 
     kb?.on('keydown-SPACE', () => this.togglePause());
@@ -195,11 +204,13 @@ export class UIScene extends Phaser.Scene {
     const eco = gs?.economy;
     if (!eco) return null;
     if (first instanceof Building) {
-      const def = BUILDING_DEFS[first.kind];
-      return (def.trains ?? []).map((k) => (eco.canTrain('player', k) ? '1' : '0')).join('');
+      const trainHash = first.availableTrainKinds().map((k) => (eco.canTrain('player', k) ? '1' : '0')).join('');
+      const upgrade = first.nextUpgradeDef();
+      const upgradeHash = upgrade ? `${first.isUpgrading() ? 'u' : eco.canUpgrade('player', first.kind, first.level) ? '1' : '0'}:${Math.floor(first.upgradeProgress() * 10)}` : 'x';
+      return `${trainHash}:${upgradeHash}`;
     }
     if (first instanceof Unit && first.kind === 'peasant') {
-      const kinds: BuildingKind[] = ['townhall', 'barracks', 'farm', 'tower'];
+      const kinds: BuildingKind[] = ['townhall', 'barracks', 'farm', 'tower', 'jousting'];
       return kinds.map((k) => (eco.canBuild('player', k) ? '1' : '0')).join('');
     }
     return null;
@@ -357,16 +368,20 @@ export class UIScene extends Phaser.Scene {
       const e = this.selected[0];
       if (e instanceof Unit) {
         const stateStr = this.fsmToString(e.fsm.kind);
+        const buildQueue = e.kind === 'peasant' && e.buildQueueLength() > 0 ? `\n${T.buildQueue}: ${e.buildQueueLength()}` : '';
         this.selectionText.setText(
           `${unitName(e.kind)}\n` +
           `${T.hp}: ${Math.ceil(e.hp)}/${e.maxHp}  ${T.atk}: ${e.attack}  ${T.arm}: ${e.armor}  ${T.rng}: ${Math.round(e.range / 32)}\n` +
-          `${stateStr}`
+          `${stateStr}${buildQueue}`
         );
       } else if (e instanceof Building) {
-        const progress = e.isBuilt() ? T.ready : `${T.building_progress} ${Math.floor((e.buildProgress / e.buildTime) * 100)}%`;
+        const progress = e.isUpgrading()
+          ? `${T.upgrading} ${Math.floor(e.upgradeProgress() * 100)}%`
+          : e.isBuilt() ? T.ready : `${T.building_progress} ${Math.floor((e.buildProgress / e.buildTime) * 100)}%`;
         const q = e.trainQueue.length ? `\n${T.queue}: ${e.trainQueue.map((o) => unitName(o.kind)).join(', ')}` : '';
         const atk = e.attack > 0 ? `  ${T.atk}: ${e.attack}` : '';
-        this.selectionText.setText(`${buildingName(e.kind)}\n${T.hp}: ${Math.ceil(e.hp)}/${e.maxHp}${atk}\n${progress}${q}`);
+        const food = e.foodProvided > 0 ? `  ${T.food}: +${e.foodProvided}` : '';
+        this.selectionText.setText(`${buildingName(e.kind)} ${T.level} ${e.level}\n${T.hp}: ${Math.ceil(e.hp)}/${e.maxHp}${atk}${food}\n${progress}${q}`);
       } else if (e instanceof ResourceNode) {
         this.selectionText.setText(`${(e as any).kind === 'tree' ? T.tree : T.goldmine}\n${T.stock}: ${(e as any).stock}/${(e as any).maxStock}`);
       } else {
@@ -387,7 +402,8 @@ export class UIScene extends Phaser.Scene {
       if (e instanceof Unit) {
         this.selectionPortrait.setTexture(`unit-${e.kind}-${e.team}-d`).setVisible(true).setScale(2.2);
       } else if (e instanceof Building) {
-        this.selectionPortrait.setTexture(`bld-${e.kind}-${e.team}-d`).setVisible(true).setScale(e.size === 3 ? 0.8 : 1.2);
+        const key = e.level > 1 ? `bld-${e.kind}-${e.team}-level2-d` : `bld-${e.kind}-${e.team}-d`;
+        this.selectionPortrait.setTexture(key).setVisible(true).setScale(e.size === 3 ? 0.8 : 1.2);
       } else if (e instanceof ResourceNode) {
         this.selectionPortrait.setTexture(e.kind === 'goldmine' ? 'res-goldmine-d' : 'res-tree-d').setVisible(true).setScale(2);
       } else {
@@ -422,16 +438,16 @@ export class UIScene extends Phaser.Scene {
     for (const e of gs.entities as Entity[]) {
       if (!(e instanceof Building)) continue;
       if (e.dead) continue;
-      // Construction progress
-      if (!e.isBuilt()) {
+      if (!e.isBuilt()) continue;
+      if (e.isUpgrading()) {
         const sx = (e.x - cam.worldView.x) * cam.zoom;
         const sy = (e.y + (e as any).radius + 4 - cam.worldView.y) * cam.zoom;
         const w = 44;
         this.trainProgress.fillStyle(0x000000, 0.7);
         this.trainProgress.fillRect(sx - w / 2, sy, w, 7);
         this.trainProgress.fillStyle(0xfacc15, 1);
-        this.trainProgress.fillRect(sx - w / 2, sy, w * e.buildRatio(), 7);
-        this.trainProgress.lineStyle(1, 0xe2e8f0, 0.2);
+        this.trainProgress.fillRect(sx - w / 2, sy, w * e.upgradeProgress(), 7);
+        this.trainProgress.lineStyle(1, 0xfffbeb, 0.35);
         this.trainProgress.strokeRect(sx - w / 2, sy, w, 7);
         continue;
       }
@@ -462,28 +478,52 @@ export class UIScene extends Phaser.Scene {
     if (team !== 'player') return;
 
     if (first instanceof Building) {
-      const def = BUILDING_DEFS[first.kind];
-      (def.trains ?? []).forEach((k, i) => {
+      const trainKinds = first.availableTrainKinds();
+      trainKinds.forEach((k, i) => {
         const udef = UNIT_DEFS[k];
         const canAfford = (gs as any).economy?.canTrain('player', k);
+        const requirement = unitTrainingRequirement(k);
+        const requirementMet = (gs as any).economy?.canTrainByTech?.('player', k) ?? true;
+        const requirementTip = requirement && !requirementMet
+          ? `\n${T.requiresBuilding}: ${buildingName(requirement.building)} ${T.level} ${requirement.level}`
+          : '';
         const label = `${unitName(k)} ${udef.cost.gold}з/${udef.cost.wood}д`;
-        const tip = `${unitName(k)}\nHP: ${udef.maxHp}  Атк: ${udef.attack}  Брон: ${udef.armor}\nЦена: ${udef.cost.gold}з ${udef.cost.wood}д ${udef.cost.food}е\nОбуч.: ${Math.round(udef.trainTime / 1000)}с`;
-        this.makeButton(i, label, () => gs.events.emit('ui:train', first, k), canAfford, tip);
+        const tip = `${unitName(k)}\nHP: ${udef.maxHp}  Атк: ${udef.attack}  Брон: ${udef.armor}\nЦена: ${udef.cost.gold}з ${udef.cost.wood}д ${udef.cost.food}е\nОбуч.: ${Math.round(udef.trainTime / 1000)}с${requirementTip}`;
+        this.makeButton(i, label, () => gs.events.emit('ui:train', first, k), canAfford, {
+          tooltip: tip,
+          iconKey: `unit-${k}-player-d`,
+        });
       });
+      const upgrade = first.nextUpgradeDef();
+      if (upgrade || first.isUpgrading()) {
+        const canUpgrade = Boolean(upgrade) && (gs as any).economy?.canUpgrade('player', first.kind, first.level) && first.canUpgrade();
+        const label = first.isUpgrading()
+          ? `${T.upgrading} ${Math.floor(first.upgradeProgress() * 100)}%`
+          : `[U] ${T.upgrade} ${upgrade?.cost.gold ?? 0}з/${upgrade?.cost.wood ?? 0}д`;
+        const tip = upgrade
+          ? `${upgrade.label}\nЦена: ${upgrade.cost.gold}з ${upgrade.cost.wood}д\nВремя: ${Math.round(upgrade.time / 1000)}с`
+          : undefined;
+        this.makeButton(trainKinds.length, label, () => gs.events.emit('ui:upgrade', first), canUpgrade, {
+          tooltip: tip,
+          iconKey: `bld-${first.kind}-player-level2-d`,
+        });
+      }
       return;
     }
     if (first instanceof Unit && first.kind === 'peasant') {
-      const kinds: BuildingKind[] = ['townhall', 'barracks', 'farm', 'tower'];
-      const hotkeys: Record<BuildingKind, string> = { townhall: 'T', barracks: 'B', farm: 'F', tower: 'W' };
+      const kinds: BuildingKind[] = ['townhall', 'barracks', 'farm', 'tower', 'jousting'];
+      const hotkeys: Record<BuildingKind, string> = { townhall: 'T', barracks: 'B', farm: 'F', tower: 'W', jousting: 'J' };
       kinds.forEach((k, i) => {
         const bdef = BUILDING_DEFS[k];
         const canAfford = (gs as any).economy?.canBuild('player', k);
         const extra = bdef.provides?.food ? ` (+${bdef.provides.food}е)` : bdef.attack ? ` (атк ${bdef.attack})` : '';
         const tip = `${buildingName(k)}${extra}\nHP: ${bdef.maxHp}\nЦена: ${bdef.cost.gold}з ${bdef.cost.wood}д`;
-        this.makeButton(i, `[${hotkeys[k]}] ${buildingName(k)}  ${bdef.cost.gold}з/${bdef.cost.wood}д`, () => this.requestBuild(k), canAfford, tip);
+        this.makeButton(i, `[${hotkeys[k]}] ${buildingName(k)}  ${bdef.cost.gold}з/${bdef.cost.wood}д`, () => this.requestBuild(k), canAfford, {
+          tooltip: tip,
+          iconKey: `bld-${k}-player-d`,
+        });
       });
-      this.makeButton(4, `[R] ${T.repairCmd}`, () => this.setRepairMode(), true, 'Восстановить здание');
-      this.makeButton(5, `[S] ${T.stop}`, () => gs.events.emit('ui:stop'), true);
+      this.makeButton(5, `[R] ${T.repairCmd}`, () => this.setRepairMode(), true, 'Восстановить здание');
       return;
     }
     if (first instanceof Unit) {
@@ -497,7 +537,10 @@ export class UIScene extends Phaser.Scene {
     }
   }
 
-  private makeButton(i: number, label: string, onClick: () => void, enabled = true, tooltip?: string) {
+  private makeButton(i: number, label: string, onClick: () => void, enabled = true, options?: string | ButtonOptions) {
+    const tooltip = typeof options === 'string' ? options : options?.tooltip;
+    const iconKey = typeof options === 'string' ? undefined : options?.iconKey;
+    const hasIcon = Boolean(iconKey && this.textures.exists(iconKey));
     const w = this.actionButtonW, h = this.actionButtonH;
     const col = i % 2;
     const row = Math.floor(i / 2);
@@ -511,28 +554,47 @@ export class UIScene extends Phaser.Scene {
     const bg = this.add.rectangle(x, y, w, h, bgColor, 0.96).setOrigin(0, 0).setStrokeStyle(1, borderColor).setInteractive({ useHandCursor: enabled });
     const accent = this.add.rectangle(x + 6, y + h / 2, 4, h - 10, accentColor, enabled ? 0.95 : 0.35).setOrigin(0, 0.5);
     const shine = this.add.rectangle(x + w / 2, y + 4, w - 12, 5, 0xffffff, 0.04).setOrigin(0.5, 0);
-    const txt = this.add.text(x + 14, y + (this.compactUi ? 7 : 8), label, {
+    const iconObjects = hasIcon ? this.makeButtonIcon(x + 28, y + h / 2, h - 8, iconKey!) : [];
+    const textX = x + (hasIcon ? 48 : 14);
+    const txt = this.add.text(textX, y + (this.compactUi ? 7 : 8), label, {
       fontFamily: 'Trebuchet MS, monospace', fontSize: this.actionButtonFont, color: textColor, fontStyle: 'bold',
-      fixedWidth: w - 20,
+      fixedWidth: w - (hasIcon ? 56 : 20),
+      fixedHeight: h - 8,
     });
+    txt.setResolution(1.25);
     txt.setShadow(0, 1, '#000000', 3, true, true);
-    if (enabled) {
-      bg.on('pointerover', () => {
+    bg.on('pointerover', () => {
+      if (enabled) {
         bg.setFillStyle(0x1d3347, 1);
         accent.setFillStyle(0x93c5fd, 1);
-        if (tooltip) this.showTooltip(this.buttonsLayer.x + x, this.buttonsLayer.y + y - 6, tooltip);
-      });
-      bg.on('pointerout', () => {
+      }
+      if (tooltip) this.showTooltip(this.buttonsLayer.x + x, this.buttonsLayer.y + y - 6, tooltip);
+    });
+    bg.on('pointerout', () => {
+      if (enabled) {
         bg.setFillStyle(bgColor, 0.96);
         accent.setFillStyle(accentColor, 0.95);
-        this.hideTooltip();
-      });
-    }
+      }
+      this.hideTooltip();
+    });
     bg.on('pointerdown', (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
       event.stopPropagation();
       if (enabled) onClick();
     });
-    this.buttonsLayer.add([shadow, bg, accent, shine, txt]);
+    this.buttonsLayer.add([shadow, bg, accent, shine, ...iconObjects, txt]);
+  }
+
+  private makeButtonIcon(x: number, y: number, maxSize: number, key: string): Phaser.GameObjects.GameObject[] {
+    const frame = this.textures.getFrame(key);
+    if (!frame) return [];
+    const bg = this.add.rectangle(x, y, maxSize, maxSize, 0x020712, 0.32)
+      .setStrokeStyle(1, 0xffffff, 0.08);
+    const image = this.add.image(x, y, key);
+    const sourceWidth = (frame as any).realWidth ?? frame.width;
+    const sourceHeight = (frame as any).realHeight ?? frame.height;
+    const scale = Math.min((maxSize - 4) / Math.max(1, sourceWidth), (maxSize - 4) / Math.max(1, sourceHeight));
+    image.setScale(scale);
+    return [bg, image];
   }
 
   private makeSettingsButton() {

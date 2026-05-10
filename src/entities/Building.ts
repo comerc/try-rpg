@@ -1,7 +1,20 @@
 import Phaser from 'phaser';
-import { BUILDING_DEFS, BuildingKind, TEAM_COLOR, Team, TILE, UnitKind } from '../config';
+import {
+  BUILDING_DEFS,
+  BuildingKind,
+  BuildingUpgradeDef,
+  TEAM_COLOR,
+  Team,
+  TILE,
+  UnitKind,
+  buildingAvailableTrains,
+  buildingRuntimeStats,
+  nextBuildingUpgrade,
+} from '../config';
 import { Entity } from './Entity';
 import { T, unitName } from '../i18n';
+import { buildingImageFit } from '../assets/VisualMetrics';
+import { BUILDING_CONSTRUCTION_FRAME_COUNT, BUILDING_DESTRUCTION_FRAME_COUNT, BUILDING_SURFACE_FRAME_COUNT } from '../assets/AssetManifest';
 
 export interface TrainOrder {
   kind: UnitKind;
@@ -17,9 +30,14 @@ export class Building extends Entity {
 
   buildProgress: number;
   buildTime: number;
+  level = 1;
 
   trainQueue: TrainOrder[] = [];
   rallyPoint: { x: number; y: number } | null = null;
+  deploymentPoint: { x: number; y: number } | null = null;
+  upgradeTimeLeft = 0;
+  upgradeTimeTotal = 0;
+  private upgradeTargetLevel = 1;
 
   acceptsResources: boolean;
   foodProvided: number;
@@ -31,11 +49,17 @@ export class Building extends Entity {
   private lastAttackAt = 0;
 
   private rallyPointGraphic: Phaser.GameObjects.Graphics | null = null;
+  private deploymentPointGraphic: Phaser.GameObjects.Graphics | null = null;
   private rallyPointPulse = 0;
+  private deploymentPointPulse = 0;
   private smokeTimer = 0;
   private facadeGraphic: Phaser.GameObjects.Graphics;
+  private selectionBeacon: Phaser.GameObjects.Graphics;
+  private surfaceOverlay: Phaser.GameObjects.Image;
   private facadeSeed = Math.random() * Math.PI * 2;
   private ambientFxTimer = 0;
+  private facadeRedrawTimer = 0;
+  private lastSurfaceKey = '';
 
   constructor(
     scene: Phaser.Scene, tx: number, ty: number, team: Team, kind: BuildingKind,
@@ -52,15 +76,24 @@ export class Building extends Entity {
     this.buildProgress = startBuilt ? def.buildTime : 0;
     this.radius = (def.size * TILE) / 2 - 2;
     this.acceptsResources = def.acceptsResources ?? false;
-    this.foodProvided = def.provides?.food ?? 0;
-    this.attack = def.attack ?? 0;
-    this.range = def.range ?? 0;
-    this.attackCooldown = def.attackCooldown ?? 1500;
-    this.sight = def.sight;
+    this.foodProvided = 0;
+    this.attack = 0;
+    this.range = 0;
+    this.attackCooldown = 1500;
+    this.sight = 0;
     this.redrawBaseDecor();
+    this.surfaceOverlay = scene.add.image(0, 0, this.sprite.texture.key);
+    this.surfaceOverlay.setVisible(false);
+    this.addAt(this.surfaceOverlay, 6);
     this.facadeGraphic = scene.add.graphics();
     this.addAt(this.facadeGraphic, 4);
-    this.hp = startBuilt ? def.maxHp : Math.max(1, Math.floor(def.maxHp * 0.1));
+    this.selectionBeacon = scene.add.graphics();
+    this.selectionBeacon.setVisible(false);
+    this.add(this.selectionBeacon);
+    this.bringToTop(this.hpBg);
+    this.bringToTop(this.hpFg);
+    this.applyLevelStats(false);
+    this.hp = startBuilt ? this.maxHp : Math.max(1, Math.floor(this.maxHp * 0.1));
     this.updateHpBar();
     this.updateBuildingSurface();
     this.redrawFacadeDetails(0);
@@ -78,11 +111,15 @@ export class Building extends Entity {
     this.rallyPoint = { x, y };
   }
 
+  setDeploymentPoint(x: number, y: number) {
+    this.deploymentPoint = { x, y };
+  }
+
   progressBuild(deltaMs: number) {
     if (this.buildProgress >= this.buildTime) return;
     const wasBuilt = this.isBuilt();
     this.buildProgress = Math.min(this.buildTime, this.buildProgress + deltaMs);
-    const def = BUILDING_DEFS[this.kind];
+    const def = buildingRuntimeStats(this.kind, this.level);
     const ratio = this.buildProgress / this.buildTime;
     this.hp = Math.max(this.hp, Math.floor(def.maxHp * ratio));
     this.maxHp = def.maxHp;
@@ -104,8 +141,7 @@ export class Building extends Entity {
   }
 
   enqueue(kind: UnitKind) {
-    const def = BUILDING_DEFS[this.kind];
-    if (!def.trains?.includes(kind)) return false;
+    if (!this.availableTrainKinds().includes(kind)) return false;
     if (this.trainQueue.length >= 5) return false;
     this.trainQueue.push({ kind, timeLeft: 0, total: 0 });
     this.scene.events.emit('train:enqueued', this, kind);
@@ -117,17 +153,60 @@ export class Building extends Entity {
     if (order) { order.timeLeft = timeMs; order.total = timeMs; }
   }
 
+  availableTrainKinds(): UnitKind[] {
+    return buildingAvailableTrains(this.kind, this.level);
+  }
+
+  trainTimeMultiplier(): number {
+    return buildingRuntimeStats(this.kind, this.level).trainTimeMultiplier;
+  }
+
+  nextUpgradeDef(): BuildingUpgradeDef | null {
+    return nextBuildingUpgrade(this.kind, this.level);
+  }
+
+  canUpgrade(): boolean {
+    return this.isBuilt() && !this.isUpgrading() && this.nextUpgradeDef() !== null;
+  }
+
+  isUpgrading(): boolean {
+    return this.upgradeTimeLeft > 0 && this.upgradeTimeTotal > 0;
+  }
+
+  startUpgrade(): boolean {
+    const upgrade = this.nextUpgradeDef();
+    if (!upgrade || !this.isBuilt() || this.isUpgrading()) return false;
+    this.upgradeTargetLevel = upgrade.level;
+    this.upgradeTimeLeft = upgrade.time;
+    this.upgradeTimeTotal = upgrade.time;
+    this.scene.events.emit('building:upgrade-started', this, upgrade);
+    return true;
+  }
+
+  upgradeProgress(): number {
+    if (!this.isUpgrading()) return 0;
+    return 1 - this.upgradeTimeLeft / this.upgradeTimeTotal;
+  }
+
   update(time: number, delta: number) {
     if (this.dead) return;
     this.updateSelectionPulse(delta);
     this.updateFlash(delta);
     this.updateRallyPointGraphic(delta);
+    this.updateDeploymentPointGraphic(delta);
     this.updateSmokeWhenDamaged(delta);
-    this.redrawFacadeDetails(time);
-    this.updateBuildingSurface();
+    this.facadeRedrawTimer += delta;
+    if (this.selected || this.isUpgrading() || !this.isBuilt() || this.facadeRedrawTimer > 360) {
+      this.facadeRedrawTimer = 0;
+      this.redrawFacadeDetails(time);
+      this.redrawSelectionBeacon(time);
+    }
+    this.updateBuildingSurface(time);
     this.updateAmbientBuildingFx(delta);
     this.refreshDepth();
     if (!this.isBuilt()) return;
+
+    this.tickUpgrade(delta);
 
     if (this.attack > 0 && this.range > 0) this.tickTowerAttack(time);
 
@@ -142,6 +221,29 @@ export class Building extends Entity {
           if (notif && this.team === 'player') notif.add(`${unitName(finished.kind)} ${T.trainedNotif}`, '#60a5fa');
         }
       }
+    }
+  }
+
+  private tickUpgrade(delta: number) {
+    if (!this.isUpgrading()) return;
+    this.upgradeTimeLeft = Math.max(0, this.upgradeTimeLeft - delta);
+    if (this.upgradeTimeLeft > 0) return;
+
+    const completedUpgrade = this.nextUpgradeDef();
+    this.level = this.upgradeTargetLevel;
+    this.upgradeTimeLeft = 0;
+    this.upgradeTimeTotal = 0;
+    this.applyLevelStats(true);
+    this.updateBuildingSurface();
+    this.redrawFacadeDetails(this.scene.time.now);
+    this.scene.events.emit('building:upgraded', this, completedUpgrade);
+
+    const snd = (this.scene as any).sound2;
+    if (snd) snd.play('build');
+    const vfx = (this.scene as any).vfx;
+    if (vfx) {
+      vfx.spawnRingWave(this.x, this.y, 8, this.radius + 24, 0.75, TEAM_COLOR[this.team], 3);
+      vfx.spawnSparks(this.x, this.y - this.radius * 0.25, TEAM_COLOR[this.team], 14);
     }
   }
 
@@ -183,10 +285,9 @@ export class Building extends Entity {
       }
       const target = best;
       this.scene.time.delayedCall(160, () => {
-        if (!target.dead) {
-          target.takeDamage(this.attack);
-          if (vfx) vfx.spawnImpact(target.x, target.y, 0xffaa33, true);
-        }
+        if (!this.scene.scene.isActive() || this.dead || !target.active || target.dead) return;
+        target.takeDamage(this.attack);
+        if (vfx) vfx.spawnImpact(target.x, target.y, 0xffaa33, true);
       });
     }
   }
@@ -197,50 +298,114 @@ export class Building extends Entity {
     return 1 - o.timeLeft / o.total;
   }
 
+  override setSelected(v: boolean) {
+    super.setSelected(v);
+    this.selectionBeacon.clear();
+    this.selectionBeacon.setVisible(false);
+    this.bringToTop(this.hpBg);
+    this.bringToTop(this.hpFg);
+  }
+
   buildRatio(): number {
     return Phaser.Math.Clamp(this.buildProgress / this.buildTime, 0, 1);
   }
 
-  private updateBuildingSurface() {
+  private updateBuildingSurface(time = this.scene.time.now) {
     const ratio = this.buildRatio();
     const damage = 1 - this.hp / this.maxHp;
-    const baseScale = this.kind === 'townhall' || this.kind === 'barracks' ? 0.98 : 1;
+    const upgradePulse = this.isUpgrading()
+      ? Math.sin(time / 960 + this.facadeSeed) * 0.01 + this.upgradeProgress() * 0.015
+      : 0;
+    const baseScale = 1 + (this.level - 1) * 0.035 + upgradePulse;
     let stage: 'foundation' | 'scaffold' | 'shell' | 'ready' | 'damaged';
     if (!this.isBuilt()) {
       stage = ratio < 0.34 ? 'foundation' : ratio < 0.72 ? 'scaffold' : 'shell';
-      this.applyStageTexture(stage);
-      this.sprite.setAlpha(0.22 + ratio * 0.78);
-      this.sprite.setScale(baseScale * (0.88 + ratio * 0.12));
-      if (ratio < 0.34) this.sprite.setTint(0x7c6f58);
-      else if (ratio < 0.7) this.sprite.setTint(0xb59d74);
-      else this.sprite.setTint(0xd8c9a8);
+      const alpha = 0.22 + ratio * 0.78;
+      const scale = baseScale * (0.88 + ratio * 0.12);
+      const tint = ratio < 0.34 ? 0x7c6f58 : ratio < 0.7 ? 0xb59d74 : 0xd8c9a8;
+      const frame = Math.min(BUILDING_CONSTRUCTION_FRAME_COUNT - 1, Math.floor(ratio * BUILDING_CONSTRUCTION_FRAME_COUNT));
+      this.applySurface(stage, alpha, scale, tint, `bld-${this.kind}-${this.team}-build-${frame}`);
       return;
     }
     stage = damage > 0.32 ? 'damaged' : 'ready';
-    this.applyStageTexture(stage);
-    this.sprite.setAlpha(1);
-    this.sprite.setScale(baseScale);
-    if (damage > 0.68) this.sprite.setTint(0x6f625c);
-    else if (damage > 0.38) this.sprite.setTint(0xa89484);
-    else if (damage > 0.16) this.sprite.setTint(0xd0bda5);
+    const tint = damage > 0.68 ? 0x6f625c : damage > 0.38 ? 0xa89484 : damage > 0.16 ? 0xd0bda5 : 0;
+    const frameMs = stage === 'damaged' ? 980 : 860;
+    const frame = Math.floor((time + this.facadeSeed * 1000) / frameMs) % BUILDING_SURFACE_FRAME_COUNT;
+    const levelTag = this.level > 1 ? '-level2' : '';
+    this.applySurface(stage, 1, baseScale, tint, `bld-${this.kind}-${this.team}${levelTag}-${stage}-${frame}`);
+  }
+
+  private applySurface(stage: 'foundation' | 'scaffold' | 'shell' | 'ready' | 'damaged', alpha: number, constructionScale: number, tint: number, textureKey?: string) {
+    const key = `${stage}:${textureKey ?? ''}:${alpha.toFixed(2)}:${constructionScale.toFixed(2)}:${tint}`;
+    if (key === this.lastSurfaceKey) return;
+    this.lastSurfaceKey = key;
+    this.applyStageTexture(stage, textureKey);
+    this.sprite.setAlpha(alpha);
+    this.fitBuildingSprite(constructionScale);
+    if (tint) this.sprite.setTint(tint);
     else this.sprite.clearTint();
   }
 
-  private applyStageTexture(stage: 'foundation' | 'scaffold' | 'shell' | 'ready' | 'damaged') {
-    if (this.kind === 'tower' && stage === 'ready') {
-      const key = `bld-${this.kind}-${this.team}-d`;
-      if (this.sprite.texture.key !== key) this.sprite.setTexture(key);
-      return;
-    }
+  private fitBuildingSprite(constructionScale = 1) {
+    const sourceWidth = (this.sprite.frame as any).realWidth ?? this.sprite.frame.width ?? this.sprite.width;
+    const sourceHeight = (this.sprite.frame as any).realHeight ?? this.sprite.frame.height ?? this.sprite.height;
+    const fit = buildingImageFit(this.kind, sourceWidth, sourceHeight, constructionScale);
+    this.sprite.setScale(fit.scale);
+    this.sprite.y = fit.y;
+  }
+
+  private applyLevelStats(healAddedHp: boolean) {
+    const oldMaxHp = this.maxHp;
+    const stats = buildingRuntimeStats(this.kind, this.level);
+    this.maxHp = stats.maxHp;
+    this.foodProvided = stats.foodProvided;
+    this.attack = stats.attack;
+    this.range = stats.range;
+    this.attackCooldown = stats.attackCooldown;
+    this.sight = stats.sight;
+    if (healAddedHp && this.maxHp > oldMaxHp) this.hp += this.maxHp - oldMaxHp;
+    this.hp = Math.min(this.hp, this.maxHp);
+    this.updateHpBar();
+  }
+
+  private applyStageTexture(stage: 'foundation' | 'scaffold' | 'shell' | 'ready' | 'damaged', textureKey?: string) {
     const key = `bld-${this.kind}-${this.team}-${stage}`;
     const fallback = `bld-${this.kind}-${this.team}-d`;
-    const next = this.scene.textures.exists(key) ? key : fallback;
-    if (this.sprite.texture.key !== next) this.sprite.setTexture(next);
+    const next = textureKey && this.scene.textures.exists(textureKey)
+      ? textureKey
+      : this.scene.textures.exists(key) ? key : fallback;
+    if (this.sprite.texture.key !== next) this.crossfadeSurfaceTexture(next);
+  }
+
+  private crossfadeSurfaceTexture(next: string) {
+    const previous = this.sprite.texture.key;
+    if (previous && this.scene.textures.exists(previous) && this.isBuilt()) {
+      this.surfaceOverlay.setTexture(previous);
+      this.surfaceOverlay.setPosition(this.sprite.x, this.sprite.y);
+      this.surfaceOverlay.setScale(this.sprite.scaleX, this.sprite.scaleY);
+      this.surfaceOverlay.setAlpha(this.sprite.alpha);
+      const spriteAny = this.sprite as any;
+      if (spriteAny.isTinted) this.surfaceOverlay.setTint(spriteAny.tintTopLeft);
+      else this.surfaceOverlay.clearTint();
+      this.surfaceOverlay.setVisible(true);
+      this.scene.tweens.killTweensOf(this.surfaceOverlay);
+      this.scene.tweens.add({
+        targets: this.surfaceOverlay,
+        alpha: 0,
+        duration: 520,
+        ease: 'Sine.easeInOut',
+        onComplete: () => this.surfaceOverlay.setVisible(false),
+      });
+    }
+    this.sprite.setTexture(next);
   }
 
   private redrawFacadeDetails(time: number) {
     const g = this.facadeGraphic;
     g.clear();
+
+    const ratio = this.buildRatio();
+    if (ratio < 1) return;
 
     const w = this.size * TILE;
     const h = this.size * TILE;
@@ -248,83 +413,16 @@ export class Building extends Entity {
     const right = w / 2;
     const top = -h / 2;
     const bottom = h / 2;
-    const ratio = this.buildRatio();
     const damage = 1 - this.hp / this.maxHp;
     const teamColor = TEAM_COLOR[this.team];
     const teamLight = Phaser.Display.Color.IntegerToColor(teamColor).lighten(22).color;
     const teamDark = Phaser.Display.Color.IntegerToColor(teamColor).darken(28).color;
-    const wave = Math.sin(time / 260 + this.facadeSeed);
-    const wave2 = Math.cos(time / 180 + this.facadeSeed * 1.7);
-    const shimmer = (Math.sin(time / 310 + this.facadeSeed * 0.9) + 1) * 0.5;
+    const wave = Math.sin(time / 980 + this.facadeSeed);
+    const wave2 = Math.cos(time / 1240 + this.facadeSeed * 1.7);
+    const shimmer = (Math.sin(time / 1460 + this.facadeSeed * 0.9) + 1) * 0.5;
     const glintAlpha = 0.08 + shimmer * 0.18;
     const bannerAlpha = 0.5 + ratio * 0.5;
-
-    if (ratio < 1) {
-      const scaffoldInset = this.kind === 'tower' ? 6 : 8;
-      const x1 = left + scaffoldInset;
-      const x2 = right - scaffoldInset;
-      const y1 = top + 8;
-      const y2 = bottom - 10;
-      const plank = 0x6e4a1e;
-      const plankLight = 0x9a6b2d;
-      const blueprintAlpha = 0.12 + (1 - ratio) * 0.1;
-
-      g.fillStyle(0x2b241a, 0.34).fillEllipse(0, bottom - 4, w * (0.74 + ratio * 0.2), h * 0.18);
-      g.fillStyle(0x6b5b42, 0.72).fillRoundedRect(left + w * 0.18, bottom - h * 0.22, w * 0.64, h * 0.14, 4);
-      g.fillStyle(0x9a7b4f, 0.6).fillRect(left + w * 0.2, bottom - h * 0.22, w * 0.6, 2.2);
-      if (ratio < 0.34) {
-        for (let i = 0; i < 9; i++) {
-          const px = left + 12 + (i * 17 + this.facadeSeed * 11) % Math.max(18, w - 24);
-          const py = bottom - 15 - ((i * 7) % 13);
-          g.fillStyle(i % 3 === 0 ? 0xb08954 : 0x6f5a3c, 0.75);
-          g.fillEllipse(px, py, 6 + (i % 2) * 3, 3.5);
-        }
-      }
-
-      g.fillStyle(teamColor, blueprintAlpha).fillRoundedRect(left + 5, top + 5, w - 10, h - 14, 4);
-      g.lineStyle(1, teamLight, 0.18 + (1 - ratio) * 0.18);
-      for (let i = 0; i < 4; i++) {
-        const y = top + 10 + i * ((h - 22) / 3);
-        g.lineBetween(left + 8, y, right - 8, y);
-      }
-      for (let i = 0; i < 4; i++) {
-        const x = left + 10 + i * ((w - 20) / 3);
-        g.lineBetween(x, top + 8, x, bottom - 10);
-      }
-
-      for (const x of [x1, x2, 0]) {
-        g.fillStyle(plank, 1).fillRect(x - 1.6, y1, 3.2, y2 - y1);
-        g.fillStyle(plankLight, 0.55).fillRect(x - 1.1, y1, 0.9, y2 - y1);
-      }
-      for (const y of [top + 18, top + h * 0.52, bottom - 16]) {
-        g.fillStyle(plank, 0.95).fillRect(left + 4, y, w - 8, 2.6);
-        g.fillStyle(plankLight, 0.45).fillRect(left + 4, y, w - 8, 0.9);
-      }
-
-      g.lineStyle(1.6, plank, 0.95);
-      g.lineBetween(x1, y1 + 4, x2, y2 - 6);
-      g.lineBetween(x2, y1 + 4, x1, y2 - 6);
-      g.lineBetween(x1, top + h * 0.52, 0, bottom - 16);
-      g.lineBetween(x2, top + h * 0.52, 0, bottom - 16);
-
-      if (ratio > 0.34) {
-        const frameAlpha = Phaser.Math.Clamp((ratio - 0.34) / 0.28, 0, 1);
-        g.fillStyle(0x3a2411, 0.82 * frameAlpha);
-        for (const x of [left + w * 0.24, 0, right - w * 0.24]) {
-          g.fillRect(x - 2, top + h * 0.34, 4, h * 0.44);
-        }
-        g.lineStyle(2.2, 0x9a6b2d, 0.55 * frameAlpha);
-        g.lineBetween(left + w * 0.2, top + h * 0.44, right - w * 0.2, top + h * 0.3);
-        g.lineBetween(right - w * 0.2, top + h * 0.44, left + w * 0.2, top + h * 0.3);
-      }
-      if (ratio > 0.68) {
-        const roofAlpha = Phaser.Math.Clamp((ratio - 0.68) / 0.24, 0, 1);
-        g.fillStyle(teamColor, 0.18 * roofAlpha).fillTriangle(left + w * 0.18, top + h * 0.34, 0, top + h * 0.08, right - w * 0.18, top + h * 0.34);
-        g.lineStyle(1.3, teamLight, 0.35 * roofAlpha);
-        g.lineBetween(left + w * 0.22, top + h * 0.32, 0, top + h * 0.1);
-        g.lineBetween(right - w * 0.22, top + h * 0.32, 0, top + h * 0.1);
-      }
-    }
+    const upgradeAlpha = Phaser.Math.Clamp(this.level > 1 ? 1 : this.upgradeProgress(), 0, 1);
 
     const drawFlag = (poleX: number, poleY: number, width: number, height: number, side: 1 | -1) => {
       const clothTip = poleX + side * (width + wave * 1.8);
@@ -407,10 +505,28 @@ export class Building extends Entity {
       }
     }
 
-    if (ratio >= 1 && damage < 0.12) {
-      const readyPulse = 0.5 + Math.sin(time / 650 + this.facadeSeed) * 0.5;
-      g.lineStyle(1.4, teamLight, 0.12 + readyPulse * 0.16);
-      g.strokeEllipse(0, bottom - h * 0.16, w * 0.72, h * 0.12);
+    if (upgradeAlpha > 0) {
+      const gold = 0xfacc15;
+      const goldDark = 0xa16207;
+      const pulse = 0.45 + Math.sin(time / 1180 + this.facadeSeed) * 0.18;
+
+      if (this.kind === 'barracks') {
+        g.fillStyle(goldDark, upgradeAlpha * 0.9).fillRoundedRect(-w * 0.08, top + h * 0.17, w * 0.16, h * 0.08, 2);
+        g.fillStyle(gold, upgradeAlpha * 0.9).fillTriangle(0, top + h * 0.12, -w * 0.12, top + h * 0.23, w * 0.12, top + h * 0.23);
+        g.lineStyle(1.2, 0xfffbeb, upgradeAlpha * 0.55);
+        g.lineBetween(-w * 0.07, top + h * 0.22, w * 0.07, top + h * 0.22);
+      } else if (this.kind === 'farm') {
+        for (const x of [-w * 0.22, 0, w * 0.22]) {
+          g.fillStyle(0xfef08a, upgradeAlpha * (0.42 + pulse * 0.18));
+          g.fillEllipse(x, h * 0.25, w * 0.09, h * 0.05);
+        }
+      } else if (this.kind === 'tower') {
+        g.fillStyle(gold, upgradeAlpha * 0.78).fillCircle(0, top + h * 0.16, 4.2);
+        g.fillStyle(0xfffbeb, upgradeAlpha * 0.6).fillCircle(-1.1, top + h * 0.145, 1.3);
+      } else if (this.kind === 'townhall') {
+        g.fillStyle(goldDark, upgradeAlpha * 0.82).fillRoundedRect(-w * 0.18, top + h * 0.16, w * 0.36, h * 0.055, 2);
+        g.fillStyle(gold, upgradeAlpha * 0.85).fillRect(-w * 0.16, top + h * 0.17, w * 0.32, 2.2);
+      }
     }
 
     if (damage > 0.12) {
@@ -477,6 +593,12 @@ export class Building extends Entity {
     }
   }
 
+  private redrawSelectionBeacon(time: number) {
+    void time;
+    this.selectionBeacon.clear();
+    this.selectionBeacon.setVisible(false);
+  }
+
   private updateRallyPointGraphic(delta: number) {
     if (!this.rallyPoint || !this.selected) {
       if (this.rallyPointGraphic) {
@@ -501,8 +623,37 @@ export class Building extends Entity {
     this.rallyPointGraphic.fillCircle(this.rallyPoint.x, this.rallyPoint.y, 2);
   }
 
+  private updateDeploymentPointGraphic(delta: number) {
+    if (this.kind !== 'barracks' || !this.deploymentPoint || !this.selected) {
+      if (this.deploymentPointGraphic) {
+        this.deploymentPointGraphic.destroy();
+        this.deploymentPointGraphic = null;
+      }
+      return;
+    }
+    this.deploymentPointPulse += delta / 1000;
+    if (!this.deploymentPointGraphic) {
+      this.deploymentPointGraphic = this.scene.add.graphics().setDepth(8001);
+    }
+    const p = this.deploymentPoint;
+    const alpha = 0.52 + Math.sin(this.deploymentPointPulse * 2.2) * 0.2;
+    this.deploymentPointGraphic.clear();
+    this.deploymentPointGraphic.fillStyle(0xfacc15, 0.16);
+    this.deploymentPointGraphic.fillCircle(p.x, p.y, 13);
+    this.deploymentPointGraphic.lineStyle(2.2, 0xfacc15, alpha);
+    this.deploymentPointGraphic.strokeCircle(p.x, p.y, 13);
+    this.deploymentPointGraphic.lineStyle(1.2, 0xfffbeb, alpha * 0.45);
+    this.deploymentPointGraphic.lineBetween(this.x, this.y + this.radius * 0.38, p.x, p.y);
+    this.deploymentPointGraphic.fillStyle(0xfffbeb, alpha);
+    this.deploymentPointGraphic.fillTriangle(p.x, p.y - 5, p.x + 5, p.y + 3, p.x - 5, p.y + 3);
+  }
+
   die() {
     if (this.dead) return;
+    this.rallyPointGraphic?.destroy();
+    this.rallyPointGraphic = null;
+    this.deploymentPointGraphic?.destroy();
+    this.deploymentPointGraphic = null;
     const map = (this.scene as any).map;
     const path = (this.scene as any).path;
     if (map) {
@@ -520,16 +671,57 @@ export class Building extends Entity {
       vfx.spawnSmokePlume?.(this.x, this.y - this.radius * 0.25, 12, 1.5);
       vfx.shake(6, 200);
     }
-    this.spawnRubble();
+    if (!this.spawnDestructionAnimation()) this.spawnRubble();
     super.die();
   }
 
-  private spawnRubble() {
-    const ruinsKey = `bld-${this.kind}-${this.team}-ruins`;
-    if (this.scene.textures.exists(ruinsKey)) {
-      const img = this.scene.add.image(this.x, this.y + this.radius * 0.12, ruinsKey).setDepth(this.y - 1);
+  private spawnDestructionAnimation(): boolean {
+    const keys = Array.from({ length: BUILDING_DESTRUCTION_FRAME_COUNT }, (_, i) => `bld-${this.kind}-${this.team}-destroy-${i}`);
+    if (!keys.every((key) => this.scene.textures.exists(key))) return false;
+
+    const scene = this.scene;
+    const { x, y, kind, team, size } = this;
+    const img = scene.add.image(x, y, keys[0]).setDepth(y - 0.5);
+    const sourceWidth = (img.frame as any).realWidth ?? img.frame.width ?? img.width;
+    const sourceHeight = (img.frame as any).realHeight ?? img.frame.height ?? img.height;
+    const fit = buildingImageFit(kind, sourceWidth, sourceHeight);
+    img.setScale(fit.scale);
+    img.y = y + fit.y;
+
+    let frame = 0;
+    scene.time.addEvent({
+      delay: 90,
+      repeat: BUILDING_DESTRUCTION_FRAME_COUNT - 2,
+      callback: () => {
+        frame += 1;
+        img.setTexture(keys[frame]);
+      },
+    });
+    scene.time.delayedCall(90 * BUILDING_DESTRUCTION_FRAME_COUNT, () => {
+      img.destroy();
+      this.spawnRubble(scene, x, y, kind, team, size);
+    });
+    return true;
+  }
+
+  private spawnRubble(
+    scene = this.scene,
+    x = this.x,
+    y = this.y,
+    kind = this.kind,
+    team = this.team,
+    size = this.size,
+  ) {
+    const ruinsKey = `bld-${kind}-${team}-ruins`;
+    if (scene.textures.exists(ruinsKey)) {
+      const img = scene.add.image(x, y, ruinsKey).setDepth(y - 1);
+      const sourceWidth = (img.frame as any).realWidth ?? img.frame.width ?? img.width;
+      const sourceHeight = (img.frame as any).realHeight ?? img.frame.height ?? img.height;
+      const fit = buildingImageFit(kind, sourceWidth, sourceHeight);
+      img.setScale(fit.scale);
+      img.y = y + fit.y;
       img.setAlpha(0.96);
-      this.scene.tweens.add({
+      scene.tweens.add({
         targets: img,
         alpha: 0,
         delay: 14000,
@@ -539,23 +731,23 @@ export class Building extends Entity {
       return;
     }
 
-    const rubble = this.scene.add.graphics().setDepth(this.y - 1);
-    const w = this.size * TILE;
-    const h = this.size * TILE;
-    const baseY = this.y + h * 0.22;
-    rubble.fillStyle(0x000000, 0.32).fillEllipse(this.x, baseY, w * 0.92, h * 0.28);
-    rubble.fillStyle(0x4a3a2b, 0.9).fillEllipse(this.x, baseY - 4, w * 0.72, h * 0.18);
+    const rubble = scene.add.graphics().setDepth(y - 1);
+    const w = size * TILE;
+    const h = size * TILE;
+    const baseY = y + h * 0.22;
+    rubble.fillStyle(0x000000, 0.32).fillEllipse(x, baseY, w * 0.92, h * 0.28);
+    rubble.fillStyle(0x4a3a2b, 0.9).fillEllipse(x, baseY - 4, w * 0.72, h * 0.18);
     for (let i = 0; i < 28; i++) {
       const a = Math.random() * Math.PI * 2;
       const d = Math.random() * w * 0.36;
-      const x = this.x + Math.cos(a) * d;
-      const y = baseY + Math.sin(a) * d * 0.32 - Math.random() * 10;
-      const color = i % 5 === 0 ? TEAM_COLOR[this.team] : i % 3 === 0 ? 0x8b7358 : 0x5f5247;
+      const px = x + Math.cos(a) * d;
+      const py = baseY + Math.sin(a) * d * 0.32 - Math.random() * 10;
+      const color = i % 5 === 0 ? TEAM_COLOR[team] : i % 3 === 0 ? 0x8b7358 : 0x5f5247;
       rubble.fillStyle(color, i % 5 === 0 ? 0.7 : 0.88);
-      rubble.fillRoundedRect(x - 3, y - 2, 5 + Math.random() * 9, 3 + Math.random() * 6, 1.5);
+      rubble.fillRoundedRect(px - 3, py - 2, 5 + Math.random() * 9, 3 + Math.random() * 6, 1.5);
     }
-    rubble.lineStyle(1.2, 0xc7b299, 0.24).strokeEllipse(this.x, baseY - 4, w * 0.68, h * 0.16);
-    this.scene.tweens.add({
+    rubble.lineStyle(1.2, 0xc7b299, 0.24).strokeEllipse(x, baseY - 4, w * 0.68, h * 0.16);
+    scene.tweens.add({
       targets: rubble,
       alpha: 0,
       delay: 12000,
@@ -568,6 +760,7 @@ export class Building extends Entity {
     this.rallyPointGraphic?.destroy();
     this.rallyPointGraphic = null;
     this.facadeGraphic?.destroy();
+    this.selectionBeacon?.destroy();
     super.destroy(fromScene);
   }
 }

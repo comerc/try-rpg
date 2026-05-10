@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { BUILDING_DEFS, Team, TILE } from '../config';
+import { BUILDING_DEFS, BuildingKind, Team, TILE, UnitKind } from '../config';
 import { Entity } from '../entities/Entity';
 import { Unit } from '../entities/Unit';
 import { Building } from '../entities/Building';
@@ -16,6 +16,7 @@ export class AIController {
   private barracksCount = 0;
   private farmCount = 0;
   private towerCount = 0;
+  private joustingCount = 0;
   private lastDefendCheck = 0;
   private lastHarass = 0;
 
@@ -25,7 +26,7 @@ export class AIController {
     private eco: EconomySystem,
     private cmd: CommandSystem,
     private getEntities: () => Entity[],
-    private spawnBuilding: (tx: number, ty: number, kind: 'townhall' | 'barracks' | 'farm' | 'tower', team: Team, built: boolean) => Building | null,
+    private spawnBuilding: (tx: number, ty: number, kind: BuildingKind, team: Team, built: boolean) => Building | null,
   ) {}
 
   update(time: number, _delta: number) {
@@ -38,10 +39,12 @@ export class AIController {
     this.barracksCount = this.ownBuildings('barracks').length;
     this.farmCount = this.ownBuildings('farm').length;
     this.towerCount = this.ownBuildings('tower').length;
+    this.joustingCount = this.ownBuildings('jousting').length;
 
     this.tickEconomy();
     this.tickDefense(time);
     this.tickMilitary();
+    this.tickUpgrades();
     this.tickHarass(time);
     this.tickAttack(time);
   }
@@ -113,6 +116,10 @@ export class AIController {
       this.tryBuild('tower', myTH);
     }
 
+    if (this.joustingCount === 0 && this.barracksCount >= 1 && this.farmCount >= 2 && this.eco.canBuild(this.team, 'jousting')) {
+      this.tryBuild('jousting', myTH);
+    }
+
     for (const b of this.ownBuildings('barracks')) {
       if (!b.isBuilt()) continue;
       if (b.trainQueue.length >= 2) continue;
@@ -120,20 +127,60 @@ export class AIController {
       const military = this.ownMilitary();
       const footmen = military.filter(u => u.kind === 'footman');
       const archers = military.filter(u => u.kind === 'archer');
+      const knights = military.filter(u => u.kind === 'knight');
+      const cavaliers = military.filter(u => u.kind === 'cavalier');
+      const horseArchers = military.filter(u => u.kind === 'horseArcher');
+      const horseKnights = military.filter(u => u.kind === 'horseKnight');
 
-      let kind: 'footman' | 'archer' = 'footman';
-      if (archers.length < Math.floor((footmen.length + 1) / 2) && this.eco.canTrain(this.team, 'archer')) {
+      let kind: UnitKind = 'footman';
+      const jousting = this.findOwn('jousting');
+      if (jousting?.level && jousting.level >= 2 && horseKnights.length < 1 && this.eco.canTrain(this.team, 'horseKnight')) {
+        kind = 'horseKnight';
+      } else if (jousting?.level && jousting.level >= 2 && horseArchers.length < Math.max(1, Math.floor(military.length / 6)) && this.eco.canTrain(this.team, 'horseArcher')) {
+        kind = 'horseArcher';
+      } else if (this.joustingCount > 0 && cavaliers.length < Math.max(1, Math.floor(military.length / 4)) && this.eco.canTrain(this.team, 'cavalier')) {
+        kind = 'cavalier';
+      } else if (b.level >= 2 && knights.length < Math.max(1, Math.floor(military.length / 5)) && this.eco.canTrain(this.team, 'knight')) {
+        kind = 'knight';
+      } else if (archers.length < Math.floor((footmen.length + 1) / 2) && this.eco.canTrain(this.team, 'archer')) {
         kind = 'archer';
       }
 
       if (this.eco.canTrain(this.team, kind)) {
         this.scene.events.emit('ai:train', b, kind);
       } else {
-        const altKind = kind === 'footman' ? 'archer' : 'footman';
+        const altKind: UnitKind = kind === 'footman' ? 'archer' : 'footman';
         if (this.eco.canTrain(this.team, altKind)) {
           this.scene.events.emit('ai:train', b, altKind);
         }
       }
+    }
+  }
+
+  private tickUpgrades() {
+    const barracks = this.ownBuildings('barracks').find((b) => b.canUpgrade() && b.level === 1);
+    const militaryCount = this.ownMilitary().length;
+    if (barracks && militaryCount >= 4 && this.eco.canUpgrade(this.team, 'barracks', barracks.level)) {
+      this.scene.events.emit('ai:upgrade', barracks);
+      return;
+    }
+
+    const farm = this.ownBuildings('farm').find((b) => b.canUpgrade() && b.level === 1);
+    const foodBuffer = this.eco.foodCap(this.team) - this.eco.foodUsed(this.team);
+    if (farm && foodBuffer <= 3 && this.eco.canUpgrade(this.team, 'farm', farm.level)) {
+      this.scene.events.emit('ai:upgrade', farm);
+      return;
+    }
+
+    const tower = this.ownBuildings('tower').find((b) => b.canUpgrade() && b.level === 1);
+    if (tower && this.barracksCount >= 1 && this.eco.canUpgrade(this.team, 'tower', tower.level)) {
+      this.scene.events.emit('ai:upgrade', tower);
+      return;
+    }
+
+    const jousting = this.ownBuildings('jousting').find((b) => b.canUpgrade() && b.level === 1);
+    if (jousting && militaryCount >= 6 && this.eco.canUpgrade(this.team, 'jousting', jousting.level)) {
+      this.scene.events.emit('ai:upgrade', jousting);
     }
   }
 
@@ -166,7 +213,7 @@ export class AIController {
     }
   }
 
-  private tryBuild(kind: 'barracks' | 'farm' | 'tower', nearTH: Building) {
+  private tryBuild(kind: 'barracks' | 'farm' | 'tower' | 'jousting', nearTH: Building) {
     const def = BUILDING_DEFS[kind];
     for (let r = 4; r < 12; r++) {
       for (let dy = -r; dy <= r; dy++) {
@@ -186,7 +233,7 @@ export class AIController {
     }
   }
 
-  private ownUnits(kind: 'peasant' | 'footman' | 'archer'): Unit[] {
+  private ownUnits(kind: UnitKind): Unit[] {
     return this.getEntities().filter((e): e is Unit =>
       e instanceof Unit && e.team === this.team && !e.dead && e.kind === kind);
   }
@@ -196,16 +243,16 @@ export class AIController {
       e instanceof Unit && e.team === this.team && !e.dead && e.kind !== 'peasant');
   }
 
-  private ownBuildings(kind: 'townhall' | 'barracks' | 'farm' | 'tower'): Building[] {
+  private ownBuildings(kind: BuildingKind): Building[] {
     return this.getEntities().filter((e): e is Building =>
       e instanceof Building && e.team === this.team && !e.dead && e.kind === kind);
   }
 
-  private findOwn(kind: 'townhall' | 'barracks' | 'farm' | 'tower'): Building | null {
+  private findOwn(kind: BuildingKind): Building | null {
     return this.ownBuildings(kind)[0] ?? null;
   }
 
-  private findEnemy(kind: 'townhall' | 'barracks' | 'farm' | 'tower'): Building | null {
+  private findEnemy(kind: BuildingKind): Building | null {
     return this.getEntities().filter((e): e is Building =>
       e instanceof Building && e.team !== this.team && !e.dead && e.kind === kind)[0] ?? null;
   }

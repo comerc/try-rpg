@@ -19,6 +19,7 @@ export class SelectionSystem {
   private dragStart: { x: number; y: number } | null = null;
   private dragCurrent: { x: number; y: number } | null = null;
   private dragRect: Phaser.GameObjects.Graphics;
+  private selectionMarker: Phaser.GameObjects.Graphics;
   private isDragging = false;
 
   constructor(
@@ -26,6 +27,7 @@ export class SelectionSystem {
     private getEntities: () => Entity[],
   ) {
     this.dragRect = scene.add.graphics().setDepth(10000);
+    this.selectionMarker = scene.add.graphics().setDepth(9999);
   }
 
   private worldPoint(pointer: Phaser.Input.Pointer): { x: number; y: number } {
@@ -152,12 +154,14 @@ export class SelectionSystem {
     if (ents.length === 1 && ents[0] instanceof Building) final = [ents[0]];
     this.selected = final;
     for (const e of this.selected) (e as any).setSelected?.(true);
+    this.redrawSelectionMarker();
     this.emit();
   }
 
   clear() {
     for (const e of this.selected) (e as any).setSelected?.(false);
     this.selected = [];
+    this.selectionMarker.clear();
     this.emit();
   }
 
@@ -165,8 +169,17 @@ export class SelectionSystem {
     const alive = this.selected.filter((e) => !e.dead);
     if (alive.length !== this.selected.length) {
       this.selected = alive;
+      this.redrawSelectionMarker();
       this.emit();
     }
+  }
+
+  update() {
+    if (this.selected.length > 1) this.redrawSelectionMarker();
+  }
+
+  private redrawSelectionMarker() {
+    this.selectionMarker.clear();
   }
 
   private emit() {

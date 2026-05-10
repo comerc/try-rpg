@@ -1,2 +1,4 @@
 node_modules/
 dist/
+local-assets/
+.DS_Store

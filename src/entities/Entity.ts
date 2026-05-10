@@ -10,6 +10,7 @@ export abstract class Entity extends Phaser.GameObjects.Container {
   protected sprite!: Phaser.GameObjects.Image;
   protected teamRing!: Phaser.GameObjects.Graphics;
   protected selectionRing!: Phaser.GameObjects.Graphics;
+  protected selectionGlow!: Phaser.GameObjects.Graphics;
   protected hpBg!: Phaser.GameObjects.Rectangle;
   protected hpFg!: Phaser.GameObjects.Rectangle;
   protected selected = false;
@@ -18,7 +19,6 @@ export abstract class Entity extends Phaser.GameObjects.Container {
   radius = 14;
 
   private selectionPulse = 0;
-  private selectionAngle = 0;
   private carryIndicator: Phaser.GameObjects.Graphics | null = null;
   private carryKind: 'gold' | 'wood' | null = null;
   private flashGraphics!: Phaser.GameObjects.Graphics;
@@ -42,6 +42,10 @@ export abstract class Entity extends Phaser.GameObjects.Container {
     this.selectionRing = scene.add.graphics();
     this.selectionRing.setVisible(false);
     this.add(this.selectionRing);
+
+    this.selectionGlow = scene.add.graphics();
+    this.selectionGlow.setVisible(false);
+    this.add(this.selectionGlow);
 
     this.sprite = scene.add.image(0, 0, texture);
     this.add(this.sprite);
@@ -80,16 +84,8 @@ export abstract class Entity extends Phaser.GameObjects.Container {
     this.updateHpBar();
   }
 
-  protected redrawTeamRing(ringRadius: number) {
+  protected redrawTeamRing(_ringRadius: number) {
     this.teamRing.clear();
-    this.teamRing.lineStyle(6, TEAM_COLOR[this.team], 0.12);
-    this.teamRing.strokeCircle(0, 0, ringRadius + 1.9);
-    this.teamRing.lineStyle(2.4, TEAM_COLOR[this.team], 0.88);
-    this.teamRing.strokeCircle(0, 0, ringRadius);
-    this.teamRing.lineStyle(1.1, 0xffffff, 0.1);
-    this.teamRing.strokeCircle(0, 0, ringRadius - 2);
-    this.teamRing.lineStyle(0.8, 0x000000, 0.18);
-    this.teamRing.strokeCircle(0, 0, ringRadius + 3.2);
   }
 
   protected redrawShadow() {
@@ -105,6 +101,8 @@ export abstract class Entity extends Phaser.GameObjects.Container {
   setSelected(v: boolean) {
     this.selected = v;
     this.selectionRing.setVisible(v);
+    this.selectionGlow.setVisible(false);
+    if (v) this.bringSelectionToTop();
     if (!v) this.selectionPulse = 0;
   }
 
@@ -216,38 +214,33 @@ export abstract class Entity extends Phaser.GameObjects.Container {
     this.setDepth(this.y);
   }
 
+  protected bringSelectionToTop() {
+    this.bringToTop(this.selectionGlow);
+    this.bringToTop(this.selectionRing);
+    if (this.carryIndicator) this.bringToTop(this.carryIndicator);
+    this.bringToTop(this.hpBg);
+    this.bringToTop(this.hpFg);
+  }
+
   protected updateSelectionPulse(delta: number) {
     if (!this.selected) return;
     this.selectionPulse += delta / 1000;
-    this.selectionAngle += delta / 1000 * 2.2;
 
-    const scale = 1 + Math.sin(this.selectionPulse * 4) * 0.08;
-    const r = (this.radius + 6) * scale;
-    const pulseAlpha = 0.7 + Math.sin(this.selectionPulse * 4) * 0.18;
+    const halfSize = this.radius + 7;
+    const corner = Math.max(7, halfSize * 0.36);
+    const alpha = 0.42 + Math.sin(this.selectionPulse * 4) * 0.05;
+    this.selectionGlow.clear();
+
     this.selectionRing.clear();
-
-    this.selectionRing.lineStyle(6, TEAM_COLOR[this.team], 0.08);
-    this.selectionRing.strokeCircle(0, 0, r + 1.5);
-
-    const segments = 4;
-    const gapAngle = 0.26;
-    const segAngle = (Math.PI * 2 / segments) - gapAngle;
-    for (let i = 0; i < segments; i++) {
-      const startA = this.selectionAngle + (i * (Math.PI * 2 / segments));
-      this.selectionRing.lineStyle(2.5, 0xffffff, pulseAlpha);
-      this.selectionRing.beginPath();
-      this.selectionRing.arc(0, 0, r, startA, startA + segAngle, false);
-      this.selectionRing.strokePath();
-    }
-
-    this.selectionRing.fillStyle(0xffffff, 0.18);
-    for (let i = 0; i < 4; i++) {
-      const a = this.selectionAngle + i * (Math.PI / 2);
-      this.selectionRing.fillCircle(Math.cos(a) * r, Math.sin(a) * r, 1.5);
-    }
-
-    this.selectionRing.lineStyle(1, 0xffffff, 0.14 + Math.sin(this.selectionPulse * 3) * 0.08);
-    this.selectionRing.strokeCircle(0, 0, r + 2.5);
+    this.selectionRing.lineStyle(2, 0xffffff, alpha);
+    this.selectionRing.lineBetween(-halfSize, -halfSize, -halfSize + corner, -halfSize);
+    this.selectionRing.lineBetween(-halfSize, -halfSize, -halfSize, -halfSize + corner);
+    this.selectionRing.lineBetween(halfSize, -halfSize, halfSize - corner, -halfSize);
+    this.selectionRing.lineBetween(halfSize, -halfSize, halfSize, -halfSize + corner);
+    this.selectionRing.lineBetween(-halfSize, halfSize, -halfSize + corner, halfSize);
+    this.selectionRing.lineBetween(-halfSize, halfSize, -halfSize, halfSize - corner);
+    this.selectionRing.lineBetween(halfSize, halfSize, halfSize - corner, halfSize);
+    this.selectionRing.lineBetween(halfSize, halfSize, halfSize, halfSize - corner);
   }
 
   protected updateFlash(delta: number) {

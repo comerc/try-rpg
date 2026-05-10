@@ -1,13 +1,15 @@
 import Phaser from 'phaser';
-import { SOUND_MASTER } from '../config';
+import { SOUND_MASTER, type UnitKind } from '../config';
 
 type SoundName =
   | 'click' | 'build' | 'melee' | 'bow' | 'death' | 'notify'
   | 'chop' | 'pick' | 'select' | 'order' | 'cancel' | 'victory' | 'defeat';
 
-type VoiceName =
+export type VoiceName =
   | 'select' | 'order' | 'attack' | 'underAttack' | 'work' | 'build'
   | 'cancel' | 'victory' | 'defeat' | 'ready';
+
+export type VoiceGroup = UnitKind | 'alert';
 
 type SoundSettings = {
   musicVolume: number;
@@ -23,16 +25,69 @@ const DEFAULT_SETTINGS: SoundSettings = {
 };
 
 const VOICE_LINES: Record<VoiceName, string[]> = {
-  select: ['At your service.', 'Ready.', 'Awaiting orders.'],
-  order: ['Moving out.', 'Yes, my lord.', 'On my way.'],
-  attack: ['For the realm!', 'To arms!', 'Engaging the enemy.'],
-  underAttack: ['We are under attack!', 'The enemy is upon us!'],
-  work: ['Work, work.', 'Back to the mines.', 'Chopping wood.'],
-  build: ['Construction started.', 'Raising the walls.'],
-  cancel: ['Canceled.', 'Standing down.'],
-  victory: ['Victory is ours!', 'The field is won.'],
-  defeat: ['We have fallen.', 'The realm is lost.'],
-  ready: ['Ready for battle.', 'Awaiting command.'],
+  select: ['Да, милорд.', 'Готов.'],
+  order: ['Иду уже.', 'Выполняю приказ.'],
+  attack: ['В атаку!', 'Цель вижу.', 'За королевство!'],
+  underAttack: ['На нас напали!', 'Враг у базы!'],
+  work: ['За работу...', 'К шахте.'],
+  build: ['Начинаю стройку.', 'Возводим стены.'],
+  cancel: ['Отставить.', 'Приказ отменён.'],
+  victory: ['Победа за нами!', 'Поле боя наше!'],
+  defeat: ['Мы потерпели поражение.', 'Королевство потеряно.'],
+  ready: ['Отряд готов.', 'Готов к бою.'],
+};
+
+const VOICE_FILE_BASE = '/assets/generated/voices';
+const VOICE_VARIANT_COUNT = 3;
+const voiceVariants = (stem: string) => Array.from(
+  { length: VOICE_VARIANT_COUNT },
+  (_, i) => `${VOICE_FILE_BASE}/${stem}-${i + 1}.wav`,
+);
+
+const VOICE_FILES: Partial<Record<VoiceGroup, Partial<Record<VoiceName, string[]>>>> = {
+  peasant: {
+    select: voiceVariants('voice-peasant-select'),
+    order: voiceVariants('voice-peasant-order'),
+    work: voiceVariants('voice-peasant-work'),
+    build: voiceVariants('voice-peasant-build'),
+  },
+  footman: {
+    select: voiceVariants('voice-footman-select'),
+    order: voiceVariants('voice-footman-order'),
+    attack: voiceVariants('voice-footman-attack'),
+  },
+  archer: {
+    select: voiceVariants('voice-archer-select'),
+    order: voiceVariants('voice-archer-order'),
+    attack: voiceVariants('voice-archer-attack'),
+  },
+  knight: {
+    select: voiceVariants('voice-knight-select'),
+    order: voiceVariants('voice-knight-order'),
+    attack: voiceVariants('voice-knight-attack'),
+  },
+  cavalier: {
+    select: voiceVariants('voice-cavalier-select'),
+    order: voiceVariants('voice-cavalier-order'),
+    attack: voiceVariants('voice-cavalier-attack'),
+  },
+  horseArcher: {
+    select: voiceVariants('voice-horse-archer-select'),
+    order: voiceVariants('voice-horse-archer-order'),
+    attack: voiceVariants('voice-horse-archer-attack'),
+  },
+  horseKnight: {
+    select: voiceVariants('voice-horse-knight-select'),
+    order: voiceVariants('voice-horse-knight-order'),
+    attack: voiceVariants('voice-horse-knight-attack'),
+  },
+  alert: {
+    ready: voiceVariants('voice-alert-ready'),
+    underAttack: voiceVariants('voice-alert-under-attack'),
+    victory: voiceVariants('voice-alert-victory'),
+    defeat: voiceVariants('voice-alert-defeat'),
+    cancel: voiceVariants('voice-alert-cancel'),
+  },
 };
 
 export class SoundSystem {
@@ -48,6 +103,8 @@ export class SoundSystem {
   private musicTimer: number | null = null;
   private musicBar = 0;
   private musicSources = new Set<AudioScheduledSourceNode>();
+  private voiceSource: AudioBufferSourceNode | null = null;
+  private voiceCache = new Map<string, Promise<AudioBuffer | null>>();
 
   private readonly resume = () => {
     const ctx = this.ensureContext();
@@ -115,10 +172,16 @@ export class SoundSystem {
     return { ...this.settings };
   }
 
-  voice(name: VoiceName) {
+  voice(name: VoiceName, group: VoiceGroup = 'alert') {
     const lines = VOICE_LINES[name];
     if (!lines) return;
-    this.speak(lines[Math.floor(Math.random() * lines.length)]);
+    const text = lines[Math.floor(Math.random() * lines.length)];
+    const file = this.voiceFile(name, group);
+    if (!file) {
+      this.speak(text);
+      return;
+    }
+    void this.playVoiceFile(file, text);
   }
 
   speak(text: string) {
@@ -136,6 +199,7 @@ export class SoundSystem {
 
   destroy() {
     this.stopMusic();
+    this.stopVoice();
     this.scene.input.off('pointerdown', this.resume);
     this.scene.input.keyboard?.off('keydown', this.resume);
   }
@@ -289,6 +353,69 @@ export class SoundSystem {
     this.musicPlaying = true;
     this.musicBar = 0;
     this.scheduleMusicLoop();
+  }
+
+  private voiceFile(name: VoiceName, group: VoiceGroup): string | null {
+    const files = VOICE_FILES[group]?.[name] ?? VOICE_FILES.alert?.[name];
+    if (!files || files.length === 0) return null;
+    return files[Math.floor(Math.random() * files.length)];
+  }
+
+  private async playVoiceFile(path: string, fallbackText: string) {
+    if (!this.enabled || this.settings.voiceVolume <= 0) return;
+    const ctx = this.ensureContext();
+    if (!ctx || !this.voiceGain) {
+      this.speak(fallbackText);
+      return;
+    }
+
+    const buffer = await this.loadVoiceBuffer(path);
+    if (!buffer || !this.ctx || !this.voiceGain) {
+      this.speak(fallbackText);
+      return;
+    }
+
+    this.stopVoice();
+    const source = this.ctx.createBufferSource();
+    const amp = this.ctx.createGain();
+    source.buffer = buffer;
+    amp.gain.setValueAtTime(SOUND_MASTER * 1.7, this.ctx.currentTime);
+    source.connect(amp).connect(this.voiceGain);
+    source.onended = () => {
+      source.disconnect();
+      amp.disconnect();
+      if (this.voiceSource === source) this.voiceSource = null;
+    };
+    this.voiceSource = source;
+    source.start();
+  }
+
+  private loadVoiceBuffer(path: string): Promise<AudioBuffer | null> {
+    let cached = this.voiceCache.get(path);
+    if (!cached) {
+      cached = fetch(path)
+        .then((res) => (res.ok ? res.arrayBuffer() : null))
+        .then((bytes) => (bytes && this.ctx ? this.ctx.decodeAudioData(bytes) : null))
+        .catch(() => null);
+      this.voiceCache.set(path, cached);
+    }
+    return cached;
+  }
+
+  private stopVoice() {
+    if (!this.voiceSource) return;
+    this.voiceSource.onended = null;
+    try {
+      this.voiceSource.stop();
+    } catch {
+      // Already stopped.
+    }
+    try {
+      this.voiceSource.disconnect();
+    } catch {
+      // Already disconnected.
+    }
+    this.voiceSource = null;
   }
 
   private scheduleMusicLoop() {

@@ -6,14 +6,28 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "smoke": "node scripts/smoke-game.cjs",
+    "assets:ai-atlases": "node scripts/generate-ai-atlases.cjs",
+    "assets:units": "node scripts/generate-unit-animations.cjs",
+    "assets:terrain": "node scripts/generate-terrain-animations.cjs",
+    "assets:buildings": "node scripts/generate-building-animations.cjs",
+    "assets:footman-grid": "node scripts/build-footman-grid-atlases.cjs && node scripts/generate-footman-grid-assets.cjs",
+    "assets:building-upgrades": "node scripts/generate-building-upgrade-assets.cjs",
+    "assets:knight": "node scripts/generate-knight-assets.cjs",
+    "assets:cavalier": "node scripts/generate-unit-animations.cjs --only=cavalier",
+    "assets:horse-archer": "node scripts/generate-unit-animations.cjs --only=horseArcher",
+    "assets:horse-knight": "node scripts/generate-unit-animations.cjs --only=horseKnight",
+    "assets:jousting": "node scripts/generate-building-animations.cjs --only=jousting",
+    "assets:regen": "npm run assets:ai-atlases && npm run assets:terrain && npm run assets:units && npm run assets:buildings"
   },
   "dependencies": {
-    "easystarjs": "^0.4.4",
     "phaser": "^3.90.0"
   },
   "devDependencies": {
+    "playwright": "^1.59.1",
+    "sharp": "^0.34.5",
     "typescript": "^5.6.3",
-    "vite": "^5.4.10"
+    "vite": "^6.4.2"
   }
 }

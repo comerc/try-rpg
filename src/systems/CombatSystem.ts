@@ -12,10 +12,10 @@ export class CombatSystem {
       if (!(e instanceof Unit)) continue;
       if (e.dead) continue;
 
-      const chase = (e as any)._attackChaseTarget as Entity | undefined;
+      const chase = e.attackChaseTarget;
       if (chase) {
         if (chase.dead) {
-          (e as any)._attackChaseTarget = null;
+          e.attackChaseTarget = null;
           if (e.fsm.kind !== 'idle') e.fsm = { kind: 'idle' };
           continue;
         }
@@ -33,7 +33,7 @@ export class CombatSystem {
           if (d <= e.range) {
             e.fsm = { kind: 'attacking', target };
           } else if (e.fsm.kind === 'idle') {
-            (e as any)._attackChaseTarget = target;
+            e.attackChaseTarget = target;
             e.fsm = { kind: 'attacking', target };
           }
         }

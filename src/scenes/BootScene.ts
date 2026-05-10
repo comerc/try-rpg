@@ -1,87 +1,12 @@
 import Phaser from 'phaser';
 import { TILE } from '../config';
+import { ASSET_MANIFEST } from '../assets/AssetManifest';
 
 export class BootScene extends Phaser.Scene {
   constructor() { super('Boot'); }
 
   preload() {
-    const base = '/assets/generated';
-    const generatedTextures = [
-      'tile-grass',
-      'tile-dirt',
-      'tile-water',
-      'tile-grass-rich',
-      'unit-peasant-player-d',
-      'unit-peasant-enemy-d',
-      'unit-footman-player-d',
-      'unit-footman-enemy-d',
-      'unit-archer-player-d',
-      'unit-archer-enemy-d',
-      'res-tree-d',
-      'res-goldmine-d',
-      'bld-townhall-player-d',
-      'bld-townhall-enemy-d',
-      'bld-barracks-player-d',
-      'bld-barracks-enemy-d',
-      'bld-farm-player-d',
-      'bld-farm-enemy-d',
-      'bld-tower-player-d',
-      'bld-tower-enemy-d',
-    ];
-    for (const key of generatedTextures) {
-      this.load.image(key, `${base}/${key}.png`);
-    }
-    this.load.image('splash-menu', `${base}/splashes/splash-menu.png`);
-    this.load.image('splash-victory', `${base}/splashes/splash-victory.png`);
-    this.load.image('splash-defeat', `${base}/splashes/splash-defeat.png`);
-    this.loadAnimationFrames(`${base}/animation`);
-  }
-
-  private loadAnimationFrames(base: string) {
-    const units = ['peasant', 'footman', 'archer'] as const;
-    const teams = ['player', 'enemy'] as const;
-    const unitStates: Array<[string, number]> = [
-      ['idle', 2],
-      ['walk-down', 3],
-      ['walk-right', 3],
-      ['walk-up', 2],
-      ['attack', 2],
-    ];
-    for (const kind of units) {
-      for (const team of teams) {
-        for (const [state, count] of unitStates) {
-          for (let i = 0; i < count; i++) {
-            const key = `unit-${kind}-${team}-${state}-${i}`;
-            this.load.image(key, `${base}/${key}.png`);
-          }
-        }
-      }
-    }
-
-    const buildings = ['townhall', 'barracks', 'farm', 'tower'] as const;
-    const stages = ['foundation', 'scaffold', 'shell', 'ready', 'damaged', 'ruins'] as const;
-    for (const kind of buildings) {
-      for (const team of teams) {
-        for (const stage of stages) {
-          const key = `bld-${kind}-${team}-${stage}`;
-          this.load.image(key, `${base}/${key}.png`);
-        }
-      }
-    }
-
-    for (const res of ['tree', 'goldmine'] as const) {
-      for (let i = 0; i < 4; i++) {
-        const key = `res-${res}-${i}`;
-        this.load.image(key, `${base}/${key}.png`);
-      }
-    }
-
-    for (const tile of ['grass', 'grass-rich', 'dirt', 'water'] as const) {
-      for (let i = 0; i < 4; i++) {
-        const key = `tile-${tile}-${i}`;
-        this.load.image(key, `${base}/${key}.png`);
-      }
-    }
+    for (const asset of ASSET_MANIFEST) this.load.image(asset.key, asset.path);
   }
 
   create() {
@@ -96,6 +21,10 @@ export class BootScene extends Phaser.Scene {
     this.makeCircle('unit-peasant', 10, 0xf5d76e, 0xffffff);
     this.makeCircle('unit-footman', 12, 0xc0c0c0, 0xffffff);
     this.makeCircle('unit-archer', 11, 0x8ee06b, 0xffffff);
+    this.makeCircle('unit-knight', 13, 0xd6c58f, 0xffffff);
+    this.makeCircle('unit-cavalier', 14, 0xc8a46a, 0xffffff);
+    this.makeCircle('unit-horseArcher', 13, 0x88b96b, 0xffffff);
+    this.makeCircle('unit-horseKnight', 15, 0xd9c79a, 0xffffff);
 
     this.makeRect('res-tree', 28, 28, 0x2f5f28, 0x183115);
     this.makeRect('res-goldmine', 30, 30, 0xe6b800, 0x8a6a00);
@@ -104,6 +33,7 @@ export class BootScene extends Phaser.Scene {
     this.makeRect('bld-barracks', TILE * 3 - 4, TILE * 3 - 4, 0x9a6a4a, 0x4a2f1a);
     this.makeRect('bld-farm', TILE * 2 - 4, TILE * 2 - 4, 0xd6b76a, 0x7a5f2a);
     this.makeRect('bld-tower', TILE * 2 - 4, TILE * 2 - 4, 0x8e9eab, 0x4a556a);
+    this.makeRect('bld-jousting', TILE * 3 - 4, TILE * 3 - 4, 0x8a6b4a, 0x3f2a18);
 
     this.makeRect('pixel', 1, 1, 0xffffff, 0xffffff);
 
@@ -115,6 +45,8 @@ export class BootScene extends Phaser.Scene {
     this.makeDetailedBuilding('bld-farm-enemy-d', TILE * 2, TILE * 2, 0xc6a178, 0x9a672f, 0x573116);
     this.makeDetailedTower('bld-tower-player-d', TILE * 2, TILE * 2, 0x72839b, 0x35518a);
     this.makeDetailedTower('bld-tower-enemy-d', TILE * 2, TILE * 2, 0x7d6e66, 0x8a352e);
+    this.makeDetailedBuilding('bld-jousting-player-d', TILE * 3, TILE * 3, 0xb08a5a, 0x4d6897, 0x29385b);
+    this.makeDetailedBuilding('bld-jousting-enemy-d', TILE * 3, TILE * 3, 0x9a6b4a, 0x7b3227, 0x391813);
 
     this.makeDetailedUnit('unit-peasant-player-d', 10, 0xdfc978, 0x82714b, 0xffffff);
     this.makeDetailedUnit('unit-peasant-enemy-d', 10, 0xcf9669, 0x7a4330, 0xffffff);
@@ -122,6 +54,14 @@ export class BootScene extends Phaser.Scene {
     this.makeDetailedUnit('unit-footman-enemy-d', 12, 0x9aa1ac, 0x5d3131, 0xffffff);
     this.makeDetailedUnit('unit-archer-player-d', 11, 0x7fc78e, 0x2f5a64, 0xffffff);
     this.makeDetailedUnit('unit-archer-enemy-d', 11, 0x98a65c, 0x5f2e2e, 0xffffff);
+    this.makeDetailedUnit('unit-knight-player-d', 13, 0xd8d0b4, 0x5a6f95, 0xffffff);
+    this.makeDetailedUnit('unit-knight-enemy-d', 13, 0xc5b596, 0x5d3131, 0xffffff);
+    this.makeDetailedUnit('unit-cavalier-player-d', 14, 0xc6a06c, 0x5a6f95, 0xffffff);
+    this.makeDetailedUnit('unit-cavalier-enemy-d', 14, 0xaa7b55, 0x5d3131, 0xffffff);
+    this.makeDetailedUnit('unit-horseArcher-player-d', 13, 0x91b56b, 0x2f5a64, 0xffffff);
+    this.makeDetailedUnit('unit-horseArcher-enemy-d', 13, 0x9a8f59, 0x5f2e2e, 0xffffff);
+    this.makeDetailedUnit('unit-horseKnight-player-d', 15, 0xd8c79b, 0x5a6f95, 0xffffff);
+    this.makeDetailedUnit('unit-horseKnight-enemy-d', 15, 0xc3aa83, 0x5d3131, 0xffffff);
 
     this.makeDetailedTree('res-tree-d', 0x265c28, 0x5a3a1a);
     this.makeDetailedGoldmine('res-goldmine-d', 0xf5c93b, 0x665246);
@@ -633,6 +573,7 @@ export class BootScene extends Phaser.Scene {
     const isPeasant = key.includes('peasant');
     const isFootman = key.includes('footman');
     const isArcher = key.includes('archer');
+    const isKnight = key.includes('knight');
     const isPlayerVariant = key.includes('-player-');
     const factionColor = isPlayerVariant ? 0x3b82f6 : 0xef4444;
     const factionLight = Phaser.Display.Color.IntegerToColor(factionColor).lighten(20).color;
@@ -697,7 +638,7 @@ export class BootScene extends Phaser.Scene {
       g.fillStyle(0x4a2f1a, 0.9).fillRect(cx - r * 1.1, cy + r * 0.0, r * 0.3, 1.5);
       g.fillStyle(0xffe0b0, 1).fillCircle(cx - r * 0.85, cy - r * 0.2, r * 0.18);
       g.fillStyle(factionLight, 0.88).fillEllipse(cx - r * 0.15, cy + r * 1.12, r * 0.52, r * 0.3);
-    } else if (isFootman) {
+    } else if (isFootman || isKnight) {
       g.fillStyle(0x7a8693, 1).fillCircle(cx, headY - 0.5, headR + 1.3);
       g.fillStyle(0xb4bec9, 1).fillCircle(cx, headY - 1, headR + 1);
       g.fillStyle(0x4f5a64, 0.55).fillCircle(cx + headR * 0.4, headY, headR + 1);

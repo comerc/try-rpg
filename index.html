@@ -27,6 +27,35 @@
         margin: 0 auto;
         touch-action: none;
       }
+      .orientation-notice {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 20;
+        align-items: center;
+        justify-content: center;
+        padding: 28px;
+        background: #08100f;
+        color: #eef7ff;
+        text-align: center;
+      }
+      .orientation-notice strong {
+        display: block;
+        font-size: 28px;
+        line-height: 1.1;
+        margin-bottom: 10px;
+      }
+      .orientation-notice span {
+        display: block;
+        max-width: 320px;
+        color: #b7c8d8;
+        font-size: 16px;
+        line-height: 1.45;
+      }
+      @media (orientation: portrait) and (max-width: 760px) {
+        .orientation-notice { display: flex; flex-direction: column; }
+        #game { visibility: hidden; }
+      }
     </style>
   </head>
   <body>
